@@ -1,0 +1,14 @@
+[Unit]
+Description=Tester Ctrl Service
+After=network.target
+
+[Service]
+User=root
+Type=simple
+ExecStart=/usr/bin/python3 -u /media/matthias/MadMax/Projects/tester-ctrl/tester-ctrl-sevice.py
+StandardOutput=file:/var/log/tester-ctrl.out
+StandardError=file:/var/log/tester-ctrl.err
+
+[Install]
+WantedBy=multi-user.target
+
