@@ -1,23 +1,11 @@
+import struct
+import json
 from typing import Any
 
-class Message(object):
-
+class Message():
     @staticmethod
-    def encodeString(data: str):
-        utf8String = json.dump(jsonObject).encode('utf-8')
-        binaryData = struct.pack(
-            '!s', #'!' => network encoding (ie. big endian); 's' => string
-            str.encode('utf-8')
-        )
-        return binaryData
-
-    @staticmethod
-    def decodeString(data: str):
-        pass
-
-    @staticmethod
-    def encodeJSON(jsonObject: dict[Any,Any]):
-        utf8String = json.dump(jsonObject).encode('utf-8')
+    def encodeString(data: str) -> bytes:
+        utf8String = data.encode('utf-8')
         binaryData = struct.pack(
             '!s', #'!' => network encoding (ie. big endian); 's' => string
             utf8String
@@ -25,13 +13,29 @@ class Message(object):
         return binaryData
 
     @staticmethod
-    def decodeJSON(jsonObject: dict[Any,Any]):
-        utf8String = json.dump(jsonObject).encode('utf-8')
-        binaryData = struct.pack(
+    def decodeString(data: bytes) -> str:
+        utf8String = struct.unpack(
             '!s', #'!' => network encoding (ie. big endian); 's' => string
-            utf8String
+            data
         )
-        return binaryData
+        decodedString = utf8String.decode('utf-8')
+        return decodedString
 
+    @staticmethod
+    def encodeJSON(data: dict[Any,Any]) -> bytes:
+        jsonString = json.dump(data)
+        return Message.encodeString(jsonString)
 
+    @staticmethod
+    def decodeJSON(data: bytes) -> dict[Any,Any]:
+        jsonString = Message.decodeString(data)
+        return json.loads(data)
+
+    @staticmethod
+    def encodeList(data: list[Any]) -> bytes:
+        return Message.encodeJSON(data)
+
+    @staticmethod
+    def decodeList(data: bytes) -> list[Any]:
+        return Message.decodeJSON(data)
     

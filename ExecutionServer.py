@@ -9,7 +9,7 @@ from HeartbeatGenerator import *
 
 
 class ExecutionServer(object):    
-    HEARTBEAT_GENERATION = 200 #in ms
+    HEARTBEAT_GENERATION = 500 #in ms
 
     def __init__(
         self, 

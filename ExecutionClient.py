@@ -1,13 +1,17 @@
-import zmq
 import logging
 import threading
+import os
+
+import zmq
+
+from CommandStatus import *
 
 class ExecutionClient(object):
     EVENT_LOOP_TIMEOUT = 10 #in ms
     COMMAND_REPLY_TIMEOUT = 500 #in ms
     COMMAND_RETIRES = 3
 
-    HEARTBEAT_CHECK = 600 #in ms (use 3x more than for generation)
+    HEARTBEAT_CHECK = 2000 #in ms (use more than for generation)
     
     def __init__(
         self,
@@ -59,17 +63,25 @@ class ExecutionClient(object):
                 
     def _commandLoop(self):
         while True:
-            self.commandSocket.send("Hello".encode('utf-8'))
-            if (self.commandSocket.poll(ExecutionClient.COMMAND_REPLY_TIMEOUT,zmq.POLLIN)>0):
-                message = self.commandSocket.recv().decode('utf-8')
-                print ("Command executed:",message)
-            else:
-                print ("Command lost")
-                #TODO: check heartbeat
+            if len(self.commandQueue)>0:
+                with self.commandQueueLock:
+                    command = self.commandQueue.pop(0)
+                sendSuccess = False
+                for _ in range(ExecutionClient.COMMAND_RETIRES):
+                    self.commandSocket.send(command.encode())
+                    if (self.commandSocket.poll(ExecutionClient.COMMAND_REPLY_TIMEOUT,zmq.POLLIN)>0):
+                        message = self.commandSocket.recv().decode('utf-8')
+                        logging.info("Command executed: "+command.name)
+                        sendSuccess = True
+                        break
+                    else:
+                        sendSuccess = True
+                        logging.error("Command lost: "+command.name)
+                        #TODO: check heartbeat
 
     def sendCommand(self,command):
-        outputProcess, writeOutput = os.pipe() 
-        readInput, inputProcess = os.pipe() 
+        outputProcess, writeOutput = os.pipe()
+        readInput, inputProcess = os.pipe()
         with self.commandQueueLock:
             self.commandQueue.append(command)
         commandStatus = CommandStatus(inputProcess,outputProcess)
