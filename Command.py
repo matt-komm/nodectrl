@@ -25,6 +25,8 @@ class Spawn(object):
     def status(self):
         pass
 
+    
+
 class Command(object):
     def __init__(self, name, description, env=None, cwd=None):
         self.interactions = []
