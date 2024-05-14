@@ -49,6 +49,7 @@ class ExecutionClient(object):
         self.dataSocket.connect(f"tcp://{self.ipAddress}:{self.dataPort}")
         self.dataSocket.setsockopt(zmq.SUBSCRIBE,b"")
         
+        self.eventLoopReady = threading.Event()
         self.eventConnectionReady = threading.Event()
         
         self.eventThread = threading.Thread(target=self._eventLoop, daemon=True)
@@ -59,23 +60,22 @@ class ExecutionClient(object):
         self.commandThread = threading.Thread(target=self._commandLoop, daemon=True)
         self.commandThread.start()
         
+        self.eventLoopReady.wait()
         message = CommandMessage('emit_event','call',config={'channel':'connection'})
         self.commandSocket.send(message.encodeCommand())
         self.commandSocket.recv()
-        self.eventConnectionReady.wait()
+        #self.eventConnectionReady.wait()
 
     def _eventLoop(self):
         while True:
-            
-            if (self.dataSocket.poll(
-                ExecutionClient.EVENT_POLL_TIMEOUT,
-                zmq.POLLIN
-            )>0):
-                message = EventMessage.fromBytes(self.dataSocket.recv())
-                print(f"received event on channel '{message.channel()}' with payload '{message.payload()}'")
-                if message.channel()=='connection':
-                    self.eventConnectionReady.set()
-                
+            self.eventLoopReady.set()
+            message = EventMessage.fromBytes(self.dataSocket.recv())
+            print(f"received event on channel '{message.channel()}' with payload '{message.payload()}'")
+            '''
+            if message.channel()=='connection':
+                self.eventConnectionReady.set()
+            '''
+            #self.eventLoopReady.set()
             #time.sleep(0.001*ExecutionClient.EVENT_DELAY_TIMEOUT)
             #self.eventThreadReady.set()
                 

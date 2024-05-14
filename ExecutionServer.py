@@ -100,10 +100,10 @@ class ExecutionServer(object):
             if (self.commandSocket.poll(ExecutionServer.COMMAND_REPLY_TIMEOUT,zmq.POLLIN)>0):
                 try:
                     message = CommandMessage.fromBytes(self.commandSocket.recv())
-                    logging.debug(f"Command {message.commandType()}/{message.commandName()} received")
+                    logging.debug(f"Command '{message.commandType()}/{message.commandName()}' received")
                     if message.commandType()=='call' and message.commandName() in self.registeredCallCommands.keys():
                         command = self.registeredCallCommands[message.commandName()]
-                        logging.debug(f"Issue call command {message.commandType()}/{message.commandName()}")
+                        logging.debug(f"Issue call command '{message.commandType()}/{message.commandName()}'")
                         result = command(message.config(),message.arguments())
                         replyMessage = CommandReply(
                             commandName=message.commandName(),
@@ -112,11 +112,11 @@ class ExecutionServer(object):
                             success=True,
                             payload=result
                         )
-                        logging.debug(f"Command {message.commandType()}/{message.commandName()} sucessful")
+                        logging.debug(f"Command '{message.commandType()}/{message.commandName()}' sucessful")
 
                     elif message.commandType()=='spawn' and message.commandName() in self.registeredSpawnCommands.keys():
                         command = self.registeredSpawnCommands[message.commandName()]
-                        logging.debug(f"Issue spawn command {message.commandType()}/{message.commandName()}")
+                        logging.debug(f"Issue spawn command '{message.commandType()}/{message.commandName()}'")
                         spawn = command.spawn(message.config(),message.arguments())
                         replyMessage = CommandReply(
                             commandName=message.commandName(),
@@ -125,9 +125,9 @@ class ExecutionServer(object):
                             success=True,
                             payload={}
                         )
-                        logging.debug(f"Command {message.commandType()}/{message.commandName()} sucessful")
+                        logging.debug(f"Command '{message.commandType()}/{message.commandName()}' sucessful")
                     else:
-                        raise RuntimeError(f"Command {message.commandType()}/{message.commandName()} not known")
+                        raise RuntimeError(f"Command '{message.commandType()}/{message.commandName()}' not known")
                     
                 except BaseException as e:
                     logging.exception(e)
@@ -138,7 +138,7 @@ class ExecutionServer(object):
                         success=False,
                         payload={'exception': {'type': str(type(e)), 'message': str(e)}}
                     )
-                    logging.debug(f"Command {message.commandType()}/{message.commandName()} failed")
+                    logging.debug(f"Command '{message.commandType()}/{message.commandName()}' failed")
 
                 self.commandSocket.send(replyMessage.encodeReply())
         
