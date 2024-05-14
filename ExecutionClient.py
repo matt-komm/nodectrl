@@ -1,6 +1,8 @@
 import logging
 import threading
 import os
+import time 
+import queue
 
 import zmq
 
@@ -48,8 +50,7 @@ class ExecutionClient(object):
         self.eventThread = threading.Thread(target=self._eventLoop, daemon=True)
         self.eventThread.start()
         
-        self.commandQueue = []
-        self.commandQueueLock = threading.Lock()
+        self.commandQueue = queue.Queue()
         self.commandThread = threading.Thread(target=self._commandLoop, daemon=True)
         self.commandThread.start()
 
@@ -64,29 +65,30 @@ class ExecutionClient(object):
                 
     def _commandLoop(self):
         while True:
-            if len(self.commandQueue)>0:
-                with self.commandQueueLock:
-                    command = self.commandQueue.pop(0)
-                sendSuccess = False
-                for _ in range(ExecutionClient.COMMAND_RETIRES):
-                    self.commandSocket.send(command.encode())
-                    if (self.commandSocket.poll(ExecutionClient.COMMAND_REPLY_TIMEOUT,zmq.POLLIN)>0):
-                        message = self.commandSocket.recv().decode('utf-8')
-                        logging.info("Command executed: "+command.name)
-                        sendSuccess = True
-                        break
-                    else:
-                        sendSuccess = True
-                        logging.error("Command lost: "+command.name)
-                        #TODO: check heartbeat
+            command = self.commandQueue.get()
+            print ("proc",command.commandName())
+            time.sleep(0.01)
+            '''
+            sendSuccess = False
+            for _ in range(ExecutionClient.COMMAND_RETIRES):
+                self.commandSocket.send(command.encode())
+                if (self.commandSocket.poll(ExecutionClient.COMMAND_REPLY_TIMEOUT,zmq.POLLIN)>0):
+                    message = self.commandSocket.recv().decode('utf-8')
+                    logging.info("Command executed: "+command.name)
+                    sendSuccess = True
+                    break
+                else:
+                    sendSuccess = True
+                    logging.error("Command lost: "+command.name)
+                    #TODO: check heartbeat
+            '''
 
     def sendCommand(self,command):
-        outputProcess, writeOutput = os.pipe()
-        readInput, inputProcess = os.pipe()
-        with self.commandQueueLock:
-            self.commandQueue.append(command)
-        commandStatus = CommandStatus(inputProcess,outputProcess)
-        return commandStatus
+        #outputProcess, writeOutput = os.pipe()
+        #readInput, inputProcess = os.pipe()
+        self.commandQueue.put(command)
+        #commandStatus = CommandStatus(inputProcess,outputProcess)
+        #return commandStatus
         
     def onEvent(self):
         pass

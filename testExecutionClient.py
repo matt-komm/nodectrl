@@ -27,6 +27,8 @@ client = ExecutionClient(
     monitorPort='3334', 
     serverPublicKey=publicKeyServer
 )
+for _ in range(10):
+    client.sendCommand(CommandMessage('test','spawns'))
 
 print(client.queryCommands())
 
