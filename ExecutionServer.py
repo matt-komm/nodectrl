@@ -7,6 +7,7 @@ from zmq.auth.thread import ThreadAuthenticator
 
 #from HeartbeatGenerator import *
 from CommandMessage import *
+from EventMessage import *
 from Command import *
 
 class ExecutionServer(object):    
@@ -17,13 +18,13 @@ class ExecutionServer(object):
     def __init__(
         self, 
         commandPort: int,
-        monitorPort: int, 
+        dataPort: int, 
         allowedIpAdresses=None, 
         publicKey=None, 
         privateKey=None
     ):
         self.commandPort = commandPort
-        self.monitorPort = monitorPort
+        self.dataPort = dataPort
         self.allowedIpAdresses = allowedIpAdresses
         self.publicKey = publicKey
         self.privateKey = privateKey
@@ -35,7 +36,15 @@ class ExecutionServer(object):
             CallCommand(
                 name='query_commands',
                 description='query commands',
-                function=self._queryCommands
+                function=self._doQueryCommands
+            )
+        )
+        
+        self.registerCallCommand(
+            CallCommand(
+                name='emit_event',
+                description='emits an event',
+                function=self._doEmitEvent
             )
         )
 
@@ -63,7 +72,7 @@ class ExecutionServer(object):
         
         
         self.commandSocket.bind(f"tcp://*:{self.commandPort}")
-        self.dataSocket.bind(f"tcp://*:{self.monitorPort}")
+        self.dataSocket.bind(f"tcp://*:{self.dataPort}")
         
         self.commandThread = threading.Thread(target=self._commandLoop, daemon=True)
         self.commandThread.start()
@@ -74,13 +83,17 @@ class ExecutionServer(object):
         )
         '''
 
-    def _queryCommands(self,cfg,args):
+    def _doQueryCommands(self, config: 'dict[str,Any]' = {}, args: 'list[str]' = []):
         result = {'call':{},'spawn':{}}
         for k,v in self.registeredCallCommands.items():
             result['call'][k] = v.description
         for k,v in self.registeredSpawnCommands.items():
             result['spawn'][k] = v.description
         return result
+        
+    def _doEmitEvent(self, config: 'dict[str,Any]' = {}, args: 'list[str]' = []):
+        self.emitEvent(config['channel'])
+        return {}
 
     def _commandLoop(self):
         while True:
@@ -130,9 +143,11 @@ class ExecutionServer(object):
                 self.commandSocket.send(replyMessage.encodeReply())
         
     
-    def emitEvent(self,event):
+    def emitEvent(self, channel: str, payload: 'dict[str,Any]' = {}):
         #self.heartbeat.resetHeartbeatTimestamp()
-        self.dataSocket.send(event)
+        print ("emit event")
+        message = EventMessage(channel,payload)
+        self.dataSocket.send(message.encodeEvent())
         
     def registerCallCommand(self,command):
         if command.name not in self.registeredCallCommands.keys():

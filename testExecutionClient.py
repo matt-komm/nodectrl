@@ -9,7 +9,7 @@ publicKeyServer, privateKeyServer = zmq.curve_keypair()
 
 server = ExecutionServer(
     commandPort='3333',
-    monitorPort='3334', 
+    dataPort='3334', 
     #allowedIpAdresses='127.0.0.1', 
     publicKey=publicKeyServer, 
     privateKey=privateKeyServer
@@ -24,15 +24,16 @@ server.registerSpawnCommand(ShellCommand(
 client = ExecutionClient(
     ipAddress='127.0.0.1', 
     commandPort='3333', 
-    monitorPort='3334', 
+    dataPort='3334', 
     serverPublicKey=publicKeyServer
 )
-for _ in range(10):
-    client.sendCommand(CommandMessage('test','spawns'))
+#time.sleep(0.1)
+
+
 
 print(client.queryCommands())
 
-'''
-server.emitEvent("blub".encode('utf-8'))
+
+
+
 time.sleep(1)
-'''
