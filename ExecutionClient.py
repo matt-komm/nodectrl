@@ -5,6 +5,7 @@ import os
 import zmq
 
 from CommandStatus import *
+from CommandMessage import *
 
 class ExecutionClient(object):
     EVENT_LOOP_TIMEOUT = 10 #in ms
@@ -90,8 +91,16 @@ class ExecutionClient(object):
     def onEvent(self):
         pass
         
-    def queryCommands(self):
-        pass
+    def queryCommands(self,timeout=-1):
+        message = CommandMessage('query_commands','call')
+        self.commandSocket.send(message.encodeCommand())
+        if (self.commandSocket.poll(timeout,zmq.POLLIN)>0):
+            reply = CommandReply.fromBytes(self.commandSocket.recv())
+            if reply.success():
+                return reply.payload()
+            else:
+                logging.error("")
+                return None
     
         
     
