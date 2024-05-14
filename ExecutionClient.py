@@ -83,7 +83,6 @@ class ExecutionClient(object):
         while True:
             command = self.commandQueue.get()
             print ("proc",command.commandName())
-            time.sleep(0.1)
             '''
             sendSuccess = False
             for _ in range(ExecutionClient.COMMAND_RETIRES):
