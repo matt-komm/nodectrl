@@ -2,13 +2,15 @@ import logging
 import threading
 import os
 import time 
-import queue
+import sys
 
 import zmq
 
 from CommandStatus import *
 from CommandMessage import *
-from EventMessage import *
+from DataMessage import *
+
+from typing import Optional
 
 class ExecutionClient(object):
     EVENT_POLL_TIMEOUT = 1 #in ms
@@ -20,19 +22,36 @@ class ExecutionClient(object):
     
     def __init__(
         self,
+        context,
         ipAddress, 
         commandPort: int, 
         dataPort: int, 
         serverPublicKey=None
     ):
-        self.ipAddress = ipAddress
-        self.commandPort = commandPort
-        self.dataPort = dataPort
-        self.serverPublicKey = serverPublicKey
+        self._context = context
+        self._ipAddress = ipAddress
+        self._commandPort = commandPort
+        self._dataPort = dataPort
+        self._serverPublicKey = serverPublicKey
         
-        self.context = zmq.Context()
+
+        self._isRunning = False
+
+
+        self.commandSocket = self._context.socket(zmq.REQ)
+        
+        
+        if serverPublicKey is not None:
+            publicKeyCommand, privateKeyCommand = zmq.curve_keypair()
+            self.commandSocket.curve_secretkey = privateKeyCommand 
+            self.commandSocket.curve_publickey = publicKeyCommand
+            self.commandSocket.curve_serverkey = self._serverPublicKey
+        
+        self.commandSocket.connect(f"tcp://{self._ipAddress}:{self._commandPort}")
+
+        '''
         self.commandSocket = self.context.socket(zmq.REQ)
-        self.dataSocket = self.context.socket(zmq.SUB)
+        
         
         if serverPublicKey is not None:
             publicKeyCommand, privateKeyCommand = zmq.curve_keypair()
@@ -65,47 +84,88 @@ class ExecutionClient(object):
         self.commandSocket.send(message.encodeCommand())
         self.commandSocket.recv()
         #self.eventConnectionReady.wait()
+        '''
 
-    def _eventLoop(self):
-        while True:
-            self.eventLoopReady.set()
-            message = EventMessage.fromBytes(self.dataSocket.recv())
-            print(f"received event on channel '{message.channel()}' with payload '{message.payload()}'")
-            '''
-            if message.channel()=='connection':
-                self.eventConnectionReady.set()
-            '''
-            #self.eventLoopReady.set()
-            #time.sleep(0.001*ExecutionClient.EVENT_DELAY_TIMEOUT)
-            #self.eventThreadReady.set()
-                
-    def _commandLoop(self):
-        while True:
-            command = self.commandQueue.get()
-            print ("proc",command.commandName())
-            '''
-            sendSuccess = False
-            for _ in range(ExecutionClient.COMMAND_RETIRES):
-                self.commandSocket.send(command.encode())
-                if (self.commandSocket.poll(ExecutionClient.COMMAND_REPLY_TIMEOUT,zmq.POLLIN)>0):
-                    message = self.commandSocket.recv().decode('utf-8')
-                    logging.info("Command executed: "+command.name)
-                    sendSuccess = True
-                    break
-                else:
-                    sendSuccess = True
-                    logging.error("Command lost: "+command.name)
-                    #TODO: check heartbeat
-            '''
-            
 
+    def connect(self, daemon: bool = False):
+        logging.info("Starting data/command threads as daemons: "+str(daemon))
+        if self._isRunning:
+            logging.warning("Event and command thread already executing")
+        else:
+            self._dataThread = threading.Thread(
+                target=ExecutionClient._dataLoop, 
+                args=(self._context, self._ipAddress, self._dataPort, self._serverPublicKey),
+                daemon=daemon
+            )
+            self._dataThread.start()
+            '''
+            self._commandThread = threading.Thread(
+                target=ExecutionClient._commandLoop, 
+                args=(self._context, self._ipAddress, self._commandPort, self._serverPublicKey),
+                daemon=daemon
+            )
+            self._commandThread.start()
+            '''
+            self._isRunning = True
+
+    def _dataLoop(
+        context: zmq.Context, 
+        ipAddress: str,
+        dataPort: int, 
+        serverPublicKey: Optional[bytes]
+    ):
+        logging.info(f"Starting data socket on '{dataPort}'")
+        try:
+            dataSocket = context.socket(zmq.SUB)
+            if serverPublicKey is not None:
+                logging.info(f"Encrypting data socket using server public key")
+                publicKeyData, privateKeyData = zmq.curve_keypair()
+                dataSocket.curve_secretkey = privateKeyData
+                dataSocket.curve_publickey = publicKeyData 
+                dataSocket.curve_serverkey = serverPublicKey
+            dataSocket.connect(f"tcp://{ipAddress}:{dataPort}")
+            dataSocket.setsockopt(zmq.SUBSCRIBE,b"")
+        except BaseException as e:
+            logging.critical("Exception during data socket setup")
+            logging.exception(e)
+            sys.exit(1)
+
+        while True:
+            time.sleep(1)
+            rawMessage = dataSocket.recv()
+            try:
+                message = DataMessage.fromBytes(rawMessage)
+                logging.debug(f"received data on channel '{message.channel()}' with payload '{message.payload()}'")
+            except BaseException as e:
+                logging.warning("Exception during processing of data socket message")
+                logging.exception(e)
+
+    '''
+    def _commandLoop(
+        context: zmq.Context, 
+        ipAddress: str,
+        commandPort: int, 
+        serverPublicKey: Optional[bytes]
+    ):
+        logging.info(f"Starting command socket on '{commandPort}'")
+        try:
+            commandSocketCollector = context.socket(zmq.XREQ)
+
+            commandSocket = context.socket(zmq.XREP)
+            commandSocket.bind("tcp://*:5560")
+            zmq.device(zmq.QUEUE, commandSocketCollector, commandSocket)
+
+        except BaseException as e:
+            logging.critical("Exception during command socket setup")
+            logging.exception(e)
+            sys.exit(1)
+    '''
+    
     def sendCommand(self,command):
-        #outputProcess, writeOutput = os.pipe()
-        #readInput, inputProcess = os.pipe()
-        self.commandQueue.put(command)
-        #commandStatus = CommandStatus(inputProcess,outputProcess)
-        #return commandStatus
+        self.commandSocket.send(command)
+        print("recv",self.commandSocket.recv())
         
+    '''
     def onEvent(self):
         pass
         
@@ -119,6 +179,6 @@ class ExecutionClient(object):
             else:
                 logging.error("")
                 return None
-    
+    '''
         
     

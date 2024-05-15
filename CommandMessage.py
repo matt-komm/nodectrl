@@ -29,7 +29,7 @@ class CommandMessage(object):
     def arguments(self) -> 'list[str]':
         return self._arguments
 
-    def encodeCommand(self) -> bytes:
+    def encode(self) -> bytes:
         commandJSON = {
             'name': self._commandName,
             'type': self._commandType,
@@ -80,7 +80,7 @@ class CommandReply(object):
     def payload(self) -> 'dict[str, Any]':
         return self._payload
 
-    def encodeReply(self) -> bytes:
+    def encode(self) -> bytes:
         replyJSON = {
             'name': self._commandName,
             'type': self._commandType,

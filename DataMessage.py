@@ -1,9 +1,9 @@
 from Message import *
 
-class EventMessage(object):
+class DataMessage(object):
     def __init__(
         self,
-        channel:str,
+        channel: str,
         payload: 'dict[str,Any]' = {}
     ):
         self._channel = channel
@@ -15,7 +15,7 @@ class EventMessage(object):
     def payload(self):
         return self._payload
     
-    def encodeEvent(self) -> bytes:
+    def encode(self) -> bytes:
         eventJSON = {
             'channel': self._channel,
             'payload': self._payload,
@@ -23,9 +23,9 @@ class EventMessage(object):
         return Message.encodeJSON(eventJSON)
         
     @staticmethod
-    def fromBytes(data: bytes) -> 'EventMessage':
+    def fromBytes(data: bytes) -> 'DataMessage':
         eventJSON = Message.decodeJSON(data)
-        message = EventMessage(
+        message = DataMessage(
             channel = eventJSON['channel'],
             payload = eventJSON['payload']
         )
