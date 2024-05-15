@@ -34,34 +34,9 @@ class ExecutionServer(object):
         
         self._registeredCallCommands = {}
         self._registeredSpawnCommands = {}
-        '''
-        self.registerCallCommand(
-            CallCommand(
-                name='query_commands',
-                description='query commands',
-                function=self._doQueryCommands
-            )
-        )
-        
-        self.registerCallCommand(
-            CallCommand(
-                name='emit_event',
-                description='emits an event',
-                function=self._doEmitEvent
-            )
-        )
-        '''
-        
 
         self._isRunning = False
         
-        '''
-        self.heartbeat = HeartbeatGenerator(
-            intervalInMS = ExecutionServer.HEARTBEAT_GENERATION,
-            callbackFunction=lambda: self.dataSocket.send("heartbeat".encode('utf-8'))
-        )
-        '''
-
     def serve(self, daemon: bool = False):
         logging.info("Starting data/command threads as daemons: "+str(daemon))
         if self._isRunning:
@@ -93,7 +68,7 @@ class ExecutionServer(object):
         logging.info(f"Starting data socket on '{dataPort}'")
         try:
             dataSocketCollector = context.socket(zmq.SUB)
-            dataSocketCollector.bind("inproc://data")
+            dataSocketCollector.bind("inproc://datapub")
             dataSocketCollector.setsockopt(zmq.SUBSCRIBE, b"")
 
             dataSocket = context.socket(zmq.PUB)
@@ -132,7 +107,7 @@ class ExecutionServer(object):
             commandSocket.bind(f"tcp://*:{commandPort}")
 
             dataSocket = context.socket(zmq.PUB)
-            dataSocket.connect("inproc://data")
+            dataSocket.connect("inproc://datapub")
 
         except BaseException as e:
             logging.critical("Exception during command socket setup")
@@ -143,12 +118,12 @@ class ExecutionServer(object):
             rawMessage = commandSocket.recv() #if this fails we are in trouble!
             try:
                 message = CommandMessage.fromBytes(rawMessage)
-                logging.debug(f"Command '{message.commandType()}/{message.commandName()}' received")
+                logging.debug(f"Command '{message.commandType()}/{message.commandName()}:{message.uniqueId()}' received")
 
                 replyMessage = CommandReply(
                     commandName=message.commandName(),
                     commandType=message.commandType(),
-                    requestId=-1,
+                    uniqueId=message.uniqueId(),
                     success=True,
                     payload={'Hi':'OK'}
                 )
@@ -190,7 +165,6 @@ class ExecutionServer(object):
                 replyMessage = CommandReply(
                     commandName='',
                     commandType='',
-                    requestId=-1,
                     success=False,
                     payload={'exception': {'type': str(type(e)), 'message': str(e)}}
                 )

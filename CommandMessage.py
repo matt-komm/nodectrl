@@ -4,16 +4,20 @@ from typing import Any
 
 from Message import *
 
+from typing import Optional
+
 class CommandMessage(object):
     def __init__(
         self,
         commandName: str,
-        commandType: str = 'spawn',
+        commandType: str,
+        uniqueId: bytes = b'',
         config: 'dict[str, Any]' = {},
-        arguments: 'list[str]' = {}
+        arguments: 'list[str]' = []
     ):
         self._commandName = commandName
         self._commandType = commandType
+        self._uniqueId = uniqueId
         self._config = config
         self._arguments = arguments
 
@@ -22,7 +26,13 @@ class CommandMessage(object):
     
     def commandType(self) -> int:
         return self._commandType
-    
+        
+    def uniqueId(self) -> bytes:
+        return self._uniqueId
+        
+    def setUniqueId(self, uniqueId: bytes):
+        self._uniqueId = uniqueId
+
     def config(self) -> str:
         return self._config
     
@@ -33,6 +43,7 @@ class CommandMessage(object):
         commandJSON = {
             'name': self._commandName,
             'type': self._commandType,
+            'id': self._uniqueId,
             'cfg': self._config,
             'args': self._arguments
         }
@@ -44,6 +55,7 @@ class CommandMessage(object):
         message = CommandMessage(
             commandName = commandJSON['name'],
             commandType = commandJSON['type'],
+            uniqueId = commandJSON['id'],
             config = commandJSON['cfg'],
             arguments = commandJSON['args']
         )
@@ -55,13 +67,13 @@ class CommandReply(object):
         self,
         commandName: str,
         commandType: str,
-        requestId: int,
         success: bool,
+        uniqueId: bytes = b'',
         payload: 'dict[str, Any]' = {}
     ):
         self._commandName = commandName
         self._commandType = commandType
-        self._requestId = requestId
+        self._uniqueId = uniqueId
         self._success = success
         self._payload = payload
 
@@ -71,8 +83,8 @@ class CommandReply(object):
     def commandType(self) -> str:
         return self._commandType
     
-    def requestId(self) -> int:
-        return self._requestId
+    def uniqueId(self) -> bytes:
+        return self._uniqueId
     
     def success(self) -> bool:
         return self._success
@@ -84,7 +96,7 @@ class CommandReply(object):
         replyJSON = {
             'name': self._commandName,
             'type': self._commandType,
-            'id': self._requestId,
+            'id': self._uniqueId,
             'success': self._success,
             'payload' : self._payload
         }
@@ -96,7 +108,7 @@ class CommandReply(object):
         message = CommandReply(
             commandName = replyJSON['name'],
             commandType = replyJSON['type'],
-            requestId = replyJSON['id'],
+            uniqueId = replyJSON['id'],
             success = replyJSON['success'],
             payload = replyJSON['payload']
         )

@@ -3,7 +3,7 @@ from Message import *
 class DataMessage(object):
     def __init__(
         self,
-        channel: str,
+        channel: bytes,
         payload: 'dict[str,Any]' = {}
     ):
         self._channel = channel
@@ -17,13 +17,14 @@ class DataMessage(object):
     
     def encode(self) -> bytes:
         eventJSON = {
-            'channel': self._channel,
-            'payload': self._payload,
+            'channel': ,
+            'payload': ,
         }
-        return Message.encodeJSON(eventJSON)
+        return Message.encodeString(self._channel+'//')+Message.encodeJSON(self._payload)
         
     @staticmethod
     def fromBytes(data: bytes) -> 'DataMessage':
+        
         eventJSON = Message.decodeJSON(data)
         message = DataMessage(
             channel = eventJSON['channel'],

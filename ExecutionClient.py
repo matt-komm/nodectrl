@@ -37,17 +37,9 @@ class ExecutionClient(object):
 
         self._isRunning = False
 
+        self.commandIds = {}
 
-        self.commandSocket = self._context.socket(zmq.REQ)
-        
-        
-        if serverPublicKey is not None:
-            publicKeyCommand, privateKeyCommand = zmq.curve_keypair()
-            self.commandSocket.curve_secretkey = privateKeyCommand 
-            self.commandSocket.curve_publickey = publicKeyCommand
-            self.commandSocket.curve_serverkey = self._serverPublicKey
-        
-        self.commandSocket.connect(f"tcp://{self._ipAddress}:{self._commandPort}")
+        self.commandSocket = None
 
         '''
         self.commandSocket = self.context.socket(zmq.REQ)
@@ -98,14 +90,16 @@ class ExecutionClient(object):
                 daemon=daemon
             )
             self._dataThread.start()
-            '''
-            self._commandThread = threading.Thread(
-                target=ExecutionClient._commandLoop, 
-                args=(self._context, self._ipAddress, self._commandPort, self._serverPublicKey),
-                daemon=daemon
-            )
-            self._commandThread.start()
-            '''
+
+            self.commandSocket = self._context.socket(zmq.REQ)
+            if self._serverPublicKey is not None:
+                publicKeyCommand, privateKeyCommand = zmq.curve_keypair()
+                self.commandSocket.curve_secretkey = privateKeyCommand 
+                self.commandSocket.curve_publickey = publicKeyCommand
+                self.commandSocket.curve_serverkey = self._serverPublicKey
+            
+            self.commandSocket.connect(f"tcp://{self._ipAddress}:{self._commandPort}")
+            
             self._isRunning = True
 
     def _dataLoop(
@@ -125,13 +119,17 @@ class ExecutionClient(object):
                 dataSocket.curve_serverkey = serverPublicKey
             dataSocket.connect(f"tcp://{ipAddress}:{dataPort}")
             dataSocket.setsockopt(zmq.SUBSCRIBE,b"")
+            
+            dataSocketDistributer = context.socket(zmq.PUB)
+            dataSocketDistributer.bind("inproc://datasub")
+            zmq.device(zmq.FORWARDER, dataSocket, dataSocketDistributer)
+
         except BaseException as e:
             logging.critical("Exception during data socket setup")
             logging.exception(e)
             sys.exit(1)
-
+        '''
         while True:
-            time.sleep(1)
             rawMessage = dataSocket.recv()
             try:
                 message = DataMessage.fromBytes(rawMessage)
@@ -139,46 +137,63 @@ class ExecutionClient(object):
             except BaseException as e:
                 logging.warning("Exception during processing of data socket message")
                 logging.exception(e)
+        '''
 
-    '''
-    def _commandLoop(
-        context: zmq.Context, 
-        ipAddress: str,
-        commandPort: int, 
-        serverPublicKey: Optional[bytes]
-    ):
-        logging.info(f"Starting command socket on '{commandPort}'")
-        try:
-            commandSocketCollector = context.socket(zmq.XREQ)
-
-            commandSocket = context.socket(zmq.XREP)
-            commandSocket.bind("tcp://*:5560")
-            zmq.device(zmq.QUEUE, commandSocketCollector, commandSocket)
-
-        except BaseException as e:
-            logging.critical("Exception during command socket setup")
-            logging.exception(e)
-            sys.exit(1)
-    '''
+    def createCommandUniqueId(self, command) -> bytes:
+        commandId = command.commandName()+"/"+command.commandType()
+        if commandId in self.commandIds.keys():
+            self.commandIds[commandId] += 1
+        else:
+            self.commandIds[commandId] = 0
+        return (commandId+':'+str(self.commandIds[commandId])).encode('utf-8')
     
-    def sendCommand(self,command):
-        self.commandSocket.send(command)
-        print("recv",self.commandSocket.recv())
+    def sendCommand(
+        self, 
+        commandName: str, 
+        commandType: str, 
+        config: 'dict[str,Any]' = {}, 
+        arguments: 'list[str]' = [],
+        onOutputCallback = None
+    ):
+        def _handleOutput(context, channelName, callbackFunction):
+            try:
+                dataSocket = context.socket(zmq.SUB)
+                dataSocket.connect("inproc://datasub")
+                dataSocket.setsockopt(zmq.SUBSCRIBE,channelName)
+            except BaseException as e:
+                logging.critical("Exception during data socket setup")
+                logging.exception(e)
+                sys.exit(1)
+            while True:
+                rawMessage = dataSocket.recv()
+                try:
+                    if not callbackFunction(rawMessage): #kill loop and thread on return False/None
+                        break
+                except BaseException as e:
+                    logging.warning("Exception during processing of data socket message")
+                    logging.exception(e)
+                    
+        commandMessage = CommandMessage(
+            commandName=commandName,
+            commandType=commandType,
+            config=config,
+            arguments=arguments
+        )
+        commandUniqueId = self.createCommandUniqueId(commandMessage)
+        commandMessage.setUniqueId(commandUniqueId)
+              
+        if onOutputCallback is not None:
+            callbackThread = threading.Thread(
+                target=_handleOutput, 
+                args=(self._context, commandUniqueId, onOutputCallback),
+                daemon=True
+            )
         
-    '''
-    def onEvent(self):
-        pass
+        self.commandSocket.send(commandMessage.encode())
+        rawReply = self.commandSocket.recv()
+        reply = CommandReply.fromBytes(rawReply)
+        print("recv",reply)
         
-    def queryCommands(self,timeout=-1):
-        message = CommandMessage('query_commands','call')
-        self.commandSocket.send(message.encodeCommand())
-        if (self.commandSocket.poll(timeout,zmq.POLLIN)>0):
-            reply = CommandReply.fromBytes(self.commandSocket.recv())
-            if reply.success():
-                return reply.payload()
-            else:
-                logging.error("")
-                return None
-    '''
+
         
     
