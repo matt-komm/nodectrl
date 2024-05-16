@@ -49,7 +49,7 @@ class ExecutionServer(object):
             
             self.commandThread = threading.Thread(
                 target=ExecutionServer._commandLoop, 
-                args=(self._context, self._commandPort, self._publicKey, self._privateKey),
+                args=(self._context, self._commandPort, self._registeredCallCommands, self._registeredSpawnCommands, self._publicKey, self._privateKey),
                 daemon=daemon
             )
             self.commandThread.start()
@@ -113,11 +113,13 @@ class ExecutionServer(object):
     def _commandLoop(
         context: zmq.Context, 
         commandPort: int, 
+        callCommands: 'dict[str,CallCommand]',
+        spawnCommands: 'dict[str,SpawnCommand]',
         publicKey: Optional[bytes], 
         privateKey: Optional[bytes]
     ):
         logging.info(f"Starting command socket on '{commandPort}'")
-        spawns = []
+        spawns = {}
         try:
             commandSocket = context.socket(zmq.REP)
             if publicKey is not None and privateKey is not None:
@@ -137,57 +139,39 @@ class ExecutionServer(object):
 
         while True:
             rawMessage = commandSocket.recv() #if this fails we are in trouble!
+            message = CommandMessage.fromBytes(rawMessage)
             try:
-                message = CommandMessage.fromBytes(rawMessage)
                 logging.debug(f"Command '{message.commandType()}/{message.commandName()}:{message.uniqueId()}' received")
 
-                replyMessage = CommandReply(
-                    commandName=message.commandName(),
-                    commandType=message.commandType(),
-                    uniqueId=message.uniqueId(),
-                    success=True,
-                    payload={'Hi':'OK'}
-                )
-                dataMessage = DataMessage(message.getChannelName(),{'output':'dbadads'})
-                dataSocket.send(dataMessage.encode())
-
-                '''
-                if message.commandType()=='call' and message.commandName() in self.registeredCallCommands.keys():
-                    command = self.registeredCallCommands[message.commandName()]
+                if message.commandType()=='call' and message.commandName() in callCommands.keys():
+                    command = callCommands[message.commandName()]
                     logging.debug(f"Issue call command '{message.commandType()}/{message.commandName()}'")
                     result = command(message.config(),message.arguments())
-                    replyMessage = CommandReply(
-                        commandName=message.commandName(),
-                        commandType=message.commandType(),
-                        requestId=-1,
+                    replyMessage = message.createReply(
                         success=True,
                         payload=result
                     )
                     logging.debug(f"Command '{message.commandType()}/{message.commandName()}' sucessful")
 
-                elif message.commandType()=='spawn' and message.commandName() in self.registeredSpawnCommands.keys():
-                    command = self.registeredSpawnCommands[message.commandName()]
+                elif message.commandType()=='spawn' and message.commandName() in spawnCommands.keys():
+                    command = spawnCommands[message.commandName()]
                     logging.debug(f"Issue spawn command '{message.commandType()}/{message.commandName()}'")
-                    spawn = command.spawn(message.config(),message.arguments())
-                    replyMessage = CommandReply(
-                        commandName=message.commandName(),
-                        commandType=message.commandType(),
-                        requestId=-1,
+                    spawn,result = command(message.config(),message.arguments())
+                    replyMessage = message.createReply(
                         success=True,
-                        payload={}
+                        payload=result
                     )
+                    spawns[f'{message.commandType()}/{message.commandName()}/{message.uniqueId()}'] = spawn
                     logging.debug(f"Command '{message.commandType()}/{message.commandName()}' sucessful")
                 else:
                     raise RuntimeError(f"Command '{message.commandType()}/{message.commandName()}' not known")
-                '''
+                
             except BaseException as e:
                 logging.warning("Exception during processing of command socket message")
                 logging.exception(e)
-                replyMessage = CommandReply(
-                    commandName='',
-                    commandType='',
+                replyMessage = message.createReply(
                     success=False,
-                    payload={'exception': {'type': str(type(e)), 'message': str(e)}}
+                    payload={'exception': {'type': type(e).__name__, 'message': str(e)}}
                 )
             commandSocket.send(replyMessage.encode())
         
@@ -197,5 +181,12 @@ class ExecutionServer(object):
         if not self._isRunning or self._dataSocket is None:
             raise RuntimeError("Cannot send data when server has not yet started")
         self._dataSocket.send(message.encode())
+
+
+    def registerCallCommand(self, command: CallCommand):
+        self._registeredCallCommands[command.name()] = command
+
+    def registerSpawnCommand(self, command: SpawnCommand):
+        self._registeredSpawnCommands[command.name()] = command
         
     

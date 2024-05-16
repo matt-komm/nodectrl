@@ -54,6 +54,15 @@ class CommandMessage(object):
     def arguments(self) -> 'list[str]':
         return self._arguments
     
+    def createReply(self, success: bool, payload: 'dict[str,Any]' = {}) -> 'CommandReply':
+        return CommandReply(
+            commandName = self._commandName,
+            commandType = self._commandType,
+            success = success,
+            uniqueId = self._uniqueId,
+            payload = payload
+        )
+
     def __str__(self):
         return f"CommandMessage(commandName={self._commandName}, commandType={self._commandType}, uniqueId={self._uniqueId}, config={self._config}, arguments={self._arguments})"
 
@@ -78,6 +87,7 @@ class CommandMessage(object):
             arguments = commandJSON['args']
         )
         return message
+        
     
 
 class CommandReply(object):
@@ -119,6 +129,10 @@ class CommandReply(object):
             'payload' : self._payload
         }
         return Message.encodeJSON(replyJSON)
+    
+    def __str__(self):
+        return f"CommandReply(commandName={self._commandName}, commandType={self._commandType}, uniqueId={self._uniqueId}, success={self._success}, payload={self._payload})"
+
 
     @staticmethod
     def fromBytes(data: bytes) -> 'CommandReply':

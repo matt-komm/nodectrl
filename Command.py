@@ -2,7 +2,7 @@ import subprocess
 import time
 
 from collections.abc import Callable
-
+from typing import Any
 
 class Spawn(object):
     #todo: always fork; run /usr/bin/time -vv to montor performance; can attach stuff to python procs for monitoring the status
@@ -28,29 +28,31 @@ class Spawn(object):
     def status(self):
         pass
 
+class Command(object):
+    def __init__(self, name: str):
+        self._name = name
+
+    def name(self) -> str:
+        return self._name
     
 
-class SpawnCommand(object):
+class SpawnCommand(Command):
     def __init__(
         self, 
-        name: str, 
-        description: str
+        name: str
     ):
-        self.name = name
-        self.description = description
+        super().__init__(name)
         
-    def spawn(self, cfg: 'dict[str, str]' = {}, argumentList: 'list[str]' =[]) -> Spawn:
+    def __call__(self, cfg: 'dict[str, str]' = {}, argumentList: 'list[str]' =[]) -> 'tuple[Spawn, dict[str, Any]]':
         raise NotImplementedError()
 
-class CallCommand(object):
+class CallCommand(Command):
     def __init__(
         self, 
-        name: str, 
-        description: str,
+        name,
         function: 'Callable[...,dict[str, Any]]'
     ):
-        self.name = name
-        self.description = description
+        super().__init__(name)
         self.function = function
         
     def __call__(self, cfg: 'dict[str, str]' = {}, argumentList: 'list[str]' =[]) -> 'dict[str, Any]':

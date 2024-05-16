@@ -17,6 +17,12 @@ server = ExecutionServer(
     publicKey=publicKeyServer, 
     privateKey=privateKeyServer
 )
+
+def callCmd(config, arguments):
+    print ("calling",config,arguments)
+    return {"awesome":1}
+
+server.registerCallCommand(CallCommand('testCallCmd',callCmd))
 server.serve()
 
 context2 = zmq.Context()
@@ -33,44 +39,11 @@ def handleOutput(message: DataMessage):
     print("handling data message ",message)
     return False #kills thread
 
-client.addDataListener("test",handleOutput)
-time.sleep(0.1)
-server.sendData("test",{})
-
-
-def checkHeartbeat(message: DataMessage):
-    print ("hearbeat", message)
-    return True
-
-client.addDataListener("heartbeat",checkHeartbeat)
-
-
-
-'''
-for _ in range(10):
-    client.sendCommand('test','call',callbackFunction=handleOutput)
-'''
-#time.sleep(5)
-
-
-'''
-server.registerSpawnCommand(ShellCommand(
-    name = 'list_dir',
-    description = 'list directory',
-    command = ['ls','-lh'],
-))
-
-
-
-
-
-
-
-
-print(client.queryCommands())
-
-
-
-
-#time.sleep(1)
-'''
+reply = client.sendCommand(
+    commandName='testCallCmd',
+    commandType='call',
+    config={"testenv":"/home"},
+    arguments=["blub;"],
+    callbackFunction=handleOutput
+)
+print (reply)

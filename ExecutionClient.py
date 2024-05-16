@@ -140,6 +140,14 @@ class ExecutionClient(object):
                 logging.exception(e)
         '''
 
+    def waitOnHeartbeat(self):
+        event = threading.Event()
+        def _findHeartbeat(data):
+            event.set()
+            return False
+        self.addDataListener('heartbeat',_findHeartbeat)
+        event.wait()
+
     def addDataListener(self, 
         channelName: str, 
         callbackFunction: 'Callable[[DataMessage],bool]'
@@ -169,6 +177,7 @@ class ExecutionClient(object):
                 except BaseException as e:
                     logging.warning(f"Exception during processing of data socket message of channel '{channelName}'")
                     logging.exception(e)
+
         callbackThread = threading.Thread(
             target=_dataLoop, 
             args=(self._context, channelName, callbackFunction),
