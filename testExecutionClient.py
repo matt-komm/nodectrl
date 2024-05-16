@@ -38,6 +38,13 @@ time.sleep(0.1)
 server.sendData("test",{})
 
 
+def checkHeartbeat(message: DataMessage):
+    print ("hearbeat", message)
+    return True
+
+client.addDataListener("heartbeat",checkHeartbeat)
+
+
 
 '''
 for _ in range(10):

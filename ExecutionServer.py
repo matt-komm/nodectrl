@@ -54,6 +54,13 @@ class ExecutionServer(object):
             )
             self.commandThread.start()
 
+            self.heartbeatThread = threading.Thread(
+                target=ExecutionServer._heartbeatLoop, 
+                args=(self._context,),
+                daemon=daemon
+            )
+            self.heartbeatThread.start()
+
             #create a socket for main process to send data
             self._dataSocket = self._context.socket(zmq.PUB)
             self._dataSocket.connect("ipc://datapub")
@@ -89,6 +96,18 @@ class ExecutionServer(object):
             logging.exception(e)
             sys.exit(1)
 
+    def _heartbeatLoop(
+        context: zmq.Context
+    ):
+        dataSocket = context.socket(zmq.PUB)
+        dataSocket.connect("ipc://datapub")
+        while True:
+            message = DataMessage(
+                channel='heartbeat',
+                payload={}
+            )
+            dataSocket.send(message.encode())
+            time.sleep(0.5)
 
     #do not expose any class member to this method; communicate only via zmq inproc if needed
     def _commandLoop(
