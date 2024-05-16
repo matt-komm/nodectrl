@@ -1,25 +1,43 @@
 import json
 import struct
+import os
+import platform
 from typing import Any
 
 from Message import *
+from DataMessage import *
 
 from typing import Optional
 
+
 class CommandMessage(object):
+    idDict = {}
+
     def __init__(
         self,
         commandName: str,
         commandType: str,
-        uniqueId: bytes = b'',
+        uniqueId: Optional[int] = None,
         config: 'dict[str, Any]' = {},
         arguments: 'list[str]' = []
     ):
         self._commandName = commandName
         self._commandType = commandType
-        self._uniqueId = uniqueId
+        self._uniqueId = self._createUniqueId() if uniqueId is None else uniqueId
         self._config = config
         self._arguments = arguments
+
+    def _createUniqueId(self):
+        offset = 100000
+        k = self._commandName+":"+self._commandType
+        if k in CommandMessage.idDict.keys():
+            CommandMessage.idDict[k] +=offset*offset
+        else:
+            CommandMessage.idDict[k] = os.getpid()%offset+(hash(platform.node())%offset)*offset
+        return CommandMessage.idDict[k]
+    
+    def getChannelName(self) -> bytes:
+        return self._commandName+":"+self._commandType+":"+str(self._uniqueId)
 
     def commandName(self) -> str:
         return self._commandName
@@ -27,17 +45,17 @@ class CommandMessage(object):
     def commandType(self) -> int:
         return self._commandType
         
-    def uniqueId(self) -> bytes:
+    def uniqueId(self) -> int:
         return self._uniqueId
-        
-    def setUniqueId(self, uniqueId: bytes):
-        self._uniqueId = uniqueId
 
     def config(self) -> str:
         return self._config
     
     def arguments(self) -> 'list[str]':
         return self._arguments
+    
+    def __str__(self):
+        return f"CommandMessage(commandName={self._commandName}, commandType={self._commandType}, uniqueId={self._uniqueId}, config={self._config}, arguments={self._arguments})"
 
     def encode(self) -> bytes:
         commandJSON = {
@@ -68,7 +86,7 @@ class CommandReply(object):
         commandName: str,
         commandType: str,
         success: bool,
-        uniqueId: bytes = b'',
+        uniqueId: int = -1,
         payload: 'dict[str, Any]' = {}
     ):
         self._commandName = commandName
@@ -83,7 +101,7 @@ class CommandReply(object):
     def commandType(self) -> str:
         return self._commandType
     
-    def uniqueId(self) -> bytes:
+    def uniqueId(self) -> str:
         return self._uniqueId
     
     def success(self) -> bool:

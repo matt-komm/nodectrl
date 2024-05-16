@@ -3,8 +3,7 @@ import time
 from ExecutionClient import *
 from ExecutionServer import *
 
-from ShellCommand import *
-
+from DataMessage import *
 import logging
 logging.basicConfig(level=logging.DEBUG)
 
@@ -29,16 +28,25 @@ client = ExecutionClient(
     serverPublicKey=publicKeyServer
 )
 client.connect()
+
+def handleOutput(message: DataMessage):
+    print("handling data message ",message)
+    return False #kills thread
+
 for _ in range(10):
-    client.sendCommand('test','call')
+    client.sendCommand('test','call',onOutputCallback=handleOutput)
 
 #time.sleep(5)
+
+
 '''
 server.registerSpawnCommand(ShellCommand(
     name = 'list_dir',
     description = 'list directory',
     command = ['ls','-lh'],
 ))
+
+
 
 
 

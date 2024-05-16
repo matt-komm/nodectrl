@@ -127,7 +127,7 @@ class ExecutionServer(object):
                     success=True,
                     payload={'Hi':'OK'}
                 )
-                dataMessage = DataMessage('command',{message.commandType():message.commandName()})
+                dataMessage = DataMessage(message.getChannelName(),{'output':'dbadads'})
                 dataSocket.send(dataMessage.encode())
 
                 '''

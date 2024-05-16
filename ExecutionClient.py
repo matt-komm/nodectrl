@@ -138,14 +138,6 @@ class ExecutionClient(object):
                 logging.warning("Exception during processing of data socket message")
                 logging.exception(e)
         '''
-
-    def createCommandUniqueId(self, command) -> bytes:
-        commandId = command.commandName()+"/"+command.commandType()
-        if commandId in self.commandIds.keys():
-            self.commandIds[commandId] += 1
-        else:
-            self.commandIds[commandId] = 0
-        return (commandId+':'+str(self.commandIds[commandId])).encode('utf-8')
     
     def sendCommand(
         self, 
@@ -156,10 +148,11 @@ class ExecutionClient(object):
         onOutputCallback = None
     ):
         def _handleOutput(context, channelName, callbackFunction):
+            logging.debug(f"Create output thread for channel {channelName}")
             try:
                 dataSocket = context.socket(zmq.SUB)
                 dataSocket.connect("inproc://datasub")
-                dataSocket.setsockopt(zmq.SUBSCRIBE,channelName)
+                dataSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel(channelName))
             except BaseException as e:
                 logging.critical("Exception during data socket setup")
                 logging.exception(e)
@@ -167,7 +160,8 @@ class ExecutionClient(object):
             while True:
                 rawMessage = dataSocket.recv()
                 try:
-                    if not callbackFunction(rawMessage): #kill loop and thread on return False/None
+                    message = DataMessage.fromBytes(rawMessage)
+                    if not callbackFunction(message): #kill loop and thread on return False/None
                         break
                 except BaseException as e:
                     logging.warning("Exception during processing of data socket message")
@@ -179,20 +173,19 @@ class ExecutionClient(object):
             config=config,
             arguments=arguments
         )
-        commandUniqueId = self.createCommandUniqueId(commandMessage)
-        commandMessage.setUniqueId(commandUniqueId)
-              
+        
         if onOutputCallback is not None:
             callbackThread = threading.Thread(
                 target=_handleOutput, 
-                args=(self._context, commandUniqueId, onOutputCallback),
+                args=(self._context, commandMessage.getChannelName(), onOutputCallback),
                 daemon=True
             )
+            callbackThread.start()
         
         self.commandSocket.send(commandMessage.encode())
         rawReply = self.commandSocket.recv()
         reply = CommandReply.fromBytes(rawReply)
-        print("recv",reply)
+        return reply
         
 
         
