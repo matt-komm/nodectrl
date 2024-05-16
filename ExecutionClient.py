@@ -121,7 +121,7 @@ class ExecutionClient(object):
             dataSocket.setsockopt(zmq.SUBSCRIBE,b"")
             
             dataSocketDistributer = context.socket(zmq.PUB)
-            dataSocketDistributer.bind("inproc://datasub")
+            dataSocketDistributer.bind("ipc://datasub")
             zmq.device(zmq.FORWARDER, dataSocket, dataSocketDistributer)
 
         except BaseException as e:
@@ -151,7 +151,7 @@ class ExecutionClient(object):
             logging.debug(f"Create output thread for channel {channelName}")
             try:
                 dataSocket = context.socket(zmq.SUB)
-                dataSocket.connect("inproc://datasub")
+                dataSocket.connect("ipc://datasub")
                 dataSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel(channelName))
             except BaseException as e:
                 logging.critical("Exception during data socket setup")

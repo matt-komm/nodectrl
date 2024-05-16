@@ -68,7 +68,7 @@ class ExecutionServer(object):
         logging.info(f"Starting data socket on '{dataPort}'")
         try:
             dataSocketCollector = context.socket(zmq.SUB)
-            dataSocketCollector.bind("inproc://datapub")
+            dataSocketCollector.bind("ipc://datapub")
             dataSocketCollector.setsockopt(zmq.SUBSCRIBE, b"")
 
             dataSocket = context.socket(zmq.PUB)
@@ -107,7 +107,7 @@ class ExecutionServer(object):
             commandSocket.bind(f"tcp://*:{commandPort}")
 
             dataSocket = context.socket(zmq.PUB)
-            dataSocket.connect("inproc://datapub")
+            dataSocket.connect("ipc://datapub")
 
         except BaseException as e:
             logging.critical("Exception during command socket setup")
