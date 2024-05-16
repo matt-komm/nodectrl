@@ -12,8 +12,6 @@ from Command import *
 from typing import Optional
 
 class ExecutionServer(object):    
-    COMMAND_REPLY_TIMEOUT = 100 #in ms
-
     def __init__(
         self, 
         context: zmq.Context,
@@ -88,7 +86,7 @@ class ExecutionServer(object):
                 dataSocket.curve_server = True
             dataSocket.bind(f"tcp://*:{dataPort}")
 
-            #connect inproc socket to outgoing TCP socket; this will block forever
+            #connect ipc socket to outgoing TCP socket; this will block forever
             zmq.device(zmq.FORWARDER, dataSocketCollector, dataSocket)
 
         except BaseException as e:
@@ -107,7 +105,7 @@ class ExecutionServer(object):
                 payload={}
             )
             dataSocket.send(message.encode())
-            time.sleep(0.5)
+            time.sleep(0.25)
 
     #do not expose any class member to this method; communicate only via zmq inproc if needed
     def _commandLoop(
@@ -129,8 +127,8 @@ class ExecutionServer(object):
                 commandSocket.curve_server = True
             commandSocket.bind(f"tcp://*:{commandPort}")
 
-            dataSocket = context.socket(zmq.PUB)
-            dataSocket.connect("ipc://datapub")
+            #dataSocket = context.socket(zmq.PUB)
+            #dataSocket.connect("ipc://datapub")
 
         except BaseException as e:
             logging.critical("Exception during command socket setup")
@@ -146,7 +144,10 @@ class ExecutionServer(object):
                 if message.commandType()=='call' and message.commandName() in callCommands.keys():
                     command = callCommands[message.commandName()]
                     logging.debug(f"Issue call command '{message.commandType()}/{message.commandName()}'")
-                    result = command(message.config(),message.arguments())
+                    #dataSocket.send(DataMessage(message.getChannelName(),{}).encode())
+                    result = command(context, message.getChannelName(),message.config(),message.arguments())
+                    
+                    
                     replyMessage = message.createReply(
                         success=True,
                         payload=result
@@ -156,11 +157,12 @@ class ExecutionServer(object):
                 elif message.commandType()=='spawn' and message.commandName() in spawnCommands.keys():
                     command = spawnCommands[message.commandName()]
                     logging.debug(f"Issue spawn command '{message.commandType()}/{message.commandName()}'")
-                    spawn,result = command(message.config(),message.arguments())
+                    spawn,result = command(message.getChannelName(),message.config(),message.arguments())
                     replyMessage = message.createReply(
                         success=True,
                         payload=result
                     )
+                    #TODO: what is the channel?
                     spawns[f'{message.commandType()}/{message.commandName()}/{message.uniqueId()}'] = spawn
                     logging.debug(f"Command '{message.commandType()}/{message.commandName()}' sucessful")
                 else:
@@ -174,6 +176,11 @@ class ExecutionServer(object):
                     payload={'exception': {'type': type(e).__name__, 'message': str(e)}}
                 )
             commandSocket.send(replyMessage.encode())
+            dataSocket2 = context.socket(zmq.PUB)
+            dataSocket2.connect("ipc://datapub")
+            dataSocket2.send(DataMessage(message.getChannelName(),{"fromData":2}).encode())
+            dataSocket2.setsockopt( zmq.LINGER, 0 ) 
+            dataSocket2.close()
         
     
     def sendData(self, channel: str, payload: 'dict[str,Any]' = {}):

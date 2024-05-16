@@ -140,24 +140,24 @@ class ExecutionClient(object):
                 logging.exception(e)
         '''
 
-    def waitOnHeartbeat(self):
-        event = threading.Event()
-        def _findHeartbeat(data):
-            event.set()
-            return False
-        self.addDataListener('heartbeat',_findHeartbeat)
-        event.wait()
-
     def addDataListener(self, 
         channelName: str, 
         callbackFunction: 'Callable[[DataMessage],bool]'
     ):
+        logging.info(f"Adding data listener for channel '{channelName}'")
+        heartbeatOK = threading.Event()
         def _dataLoop(context, channelName, callbackFunction):
-            logging.debug(f"Create output thread for channel '{channelName}'")
+            logging.debug(f"Started output thread for channel '{channelName}'")
             try:
                 dataSocket = context.socket(zmq.SUB)
                 dataSocket.connect("ipc://datasub")
                 dataSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel(channelName))
+                
+                heartbeatSocket = self._context.socket(zmq.SUB)
+                heartbeatSocket.connect("ipc://datasub")
+                heartbeatSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel('heartbeat'))
+                heartbeatSocket.recv() #blocks until heartbeat is received
+                heartbeatOK.set()
             except BaseException as e:
                 logging.critical(f"Exception during data socket setup for channel '{channelName}'")
                 logging.exception(e)
@@ -177,6 +177,7 @@ class ExecutionClient(object):
                 except BaseException as e:
                     logging.warning(f"Exception during processing of data socket message of channel '{channelName}'")
                     logging.exception(e)
+            logging.debug(f"Closing output thread for channel '{channelName}'")
 
         callbackThread = threading.Thread(
             target=_dataLoop, 
@@ -184,7 +185,9 @@ class ExecutionClient(object):
             daemon=True
         )
         callbackThread.start()
-    
+        heartbeatOK.wait()
+        
+        
     def sendCommand(
         self, 
         commandName: str, 
@@ -203,7 +206,8 @@ class ExecutionClient(object):
         
         if callbackFunction is not None:
             self.addDataListener(commandMessage.getChannelName(),callbackFunction)
-        
+            #self.waitOnHeartbeat()
+
         self.commandSocket.send(commandMessage.encode())
         rawReply = self.commandSocket.recv()
         reply = CommandReply.fromBytes(rawReply)

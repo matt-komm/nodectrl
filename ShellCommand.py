@@ -4,26 +4,30 @@ from typing import Optional
 
 from Command import *
 
-class ShellCommandSpawn(Spawn):
+class ShellSpawn(Spawn):
     def __init__(
-        self
+        self,
+        command: 'list[str]',
+        config: 'dict[str, Any]' = {},
+        argumentList: 'list[str]' =[]
     ):
-        pass
+        self._command = command
+        self._config = config
+        self._argumentList = argumentList
 
     def start(self):
-        pass
+        proc = subprocess.Popen(self._command)
 
 
 class ShellCommand(SpawnCommand):
     def __init__(
             self, 
             name: str,
-            description: str,
             command: 'list[str]',
             **kwargs
         ):
-        super().__init__(self,name,description)
+        super().__init__(name)
+        self._command = command 
 
-
-    def spawn(self, inStream, outStream, **kwargs) -> ShellCommandSpawn:
-        return ShellCommandSpawn()
+    def __call__(self, config: 'dict[str, Any]' = {}, argumentList: 'list[str]' =[]) -> 'tuple[ShellSpawn,dict[str,Any]]':
+        return ShellSpawn(self._command, config, argumentList),{}

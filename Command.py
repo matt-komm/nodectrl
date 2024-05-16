@@ -1,6 +1,8 @@
 import subprocess
 import time
 
+from DataMessage import *
+
 from collections.abc import Callable
 from typing import Any
 
@@ -10,23 +12,20 @@ class Spawn(object):
         pass
         
     def start(self):
-        self.startTime = time.time_ns()/1e6
+        raise NotImplementedError()
         
     #in ms
     def uptime(self):
-        if self.status()=='running':
-            return (time.time_ns()/1e6 - self.startTime) 
-        else:
-            return (self.stopTime-self.startTime)
+        raise NotImplementedError()
 
     def terminate(self):
-        pass
+        raise NotImplementedError()
         
     def kill(self):
-        pass
+        raise NotImplementedError()
         
     def status(self):
-        pass
+        raise NotImplementedError()
 
 class Command(object):
     def __init__(self, name: str):
@@ -43,17 +42,17 @@ class SpawnCommand(Command):
     ):
         super().__init__(name)
         
-    def __call__(self, cfg: 'dict[str, str]' = {}, argumentList: 'list[str]' =[]) -> 'tuple[Spawn, dict[str, Any]]':
+    def __call__(self, channel: str, config: 'dict[str, str]' = {}, argumentList: 'list[str]' =[]) -> 'tuple[Spawn, dict[str, Any]]':
         raise NotImplementedError()
 
 class CallCommand(Command):
     def __init__(
         self, 
         name,
-        function: 'Callable[...,dict[str, Any]]'
+        function: 'Callable[[dict[str, Any],list[str]],dict[str, Any]]'
     ):
         super().__init__(name)
         self.function = function
         
-    def __call__(self, cfg: 'dict[str, str]' = {}, argumentList: 'list[str]' =[]) -> 'dict[str, Any]':
-        return self.function(cfg,argumentList)
+    def __call__(self, context, channel: str, config: 'dict[str, Any]' = {}, argumentList: 'list[str]' =[]) -> 'dict[str, Any]':
+        return self.function(context, channel,config,argumentList)

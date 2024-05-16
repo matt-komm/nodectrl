@@ -18,12 +18,17 @@ server = ExecutionServer(
     privateKey=privateKeyServer
 )
 
-def callCmd(config, arguments):
-    print ("calling",config,arguments)
+def callCmd(context, channel, config, arguments):
+    print ("calling",channel,config,arguments)
+    #contextCallCmd = zmq.Context()
+    print("sending to channel ",channel)
+    
+    #time.sleep(1)
     return {"awesome":1}
 
 server.registerCallCommand(CallCommand('testCallCmd',callCmd))
 server.serve()
+#time.sleep(1)
 
 context2 = zmq.Context()
 client = ExecutionClient(
@@ -34,10 +39,18 @@ client = ExecutionClient(
     serverPublicKey=publicKeyServer
 )
 client.connect()
+#time.sleep(1)
 
 def handleOutput(message: DataMessage):
     print("handling data message ",message)
-    return False #kills thread
+    return True #kills thread
+
+def testCallback(message: DataMessage):
+    print ('recv test callback: ',message)
+    return True
+
+client.addDataListener('testCallback',testCallback)
+server.sendData('testCallback',{})
 
 reply = client.sendCommand(
     commandName='testCallCmd',
