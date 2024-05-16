@@ -5,7 +5,7 @@ from ExecutionServer import *
 
 from DataMessage import *
 import logging
-logging.basicConfig(level=logging.DEBUG)
+logging.basicConfig(level=logging.DEBUG, format="%(levelname)-8s: %(message)s [%(filename)s:%(lineno)d]")
 
 context1 = zmq.Context()
 publicKeyServer, privateKeyServer = zmq.curve_keypair()
@@ -33,9 +33,16 @@ def handleOutput(message: DataMessage):
     print("handling data message ",message)
     return False #kills thread
 
-for _ in range(10):
-    client.sendCommand('test','call',onOutputCallback=handleOutput)
+client.addDataListener("test",handleOutput)
+time.sleep(0.1)
+server.sendData("test",{})
 
+
+
+'''
+for _ in range(10):
+    client.sendCommand('test','call',callbackFunction=handleOutput)
+'''
 #time.sleep(5)
 
 

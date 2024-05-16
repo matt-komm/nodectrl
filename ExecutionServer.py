@@ -4,9 +4,7 @@ import threading
 import sys
 
 import zmq
-from zmq.auth.thread import ThreadAuthenticator
 
-#from HeartbeatGenerator import *
 from CommandMessage import *
 from DataMessage import *
 from Command import *
@@ -15,8 +13,6 @@ from typing import Optional
 
 class ExecutionServer(object):    
     COMMAND_REPLY_TIMEOUT = 100 #in ms
-
-    HEARTBEAT_GENERATION = 500 #in ms
 
     def __init__(
         self, 
@@ -36,6 +32,8 @@ class ExecutionServer(object):
         self._registeredSpawnCommands = {}
 
         self._isRunning = False
+
+        self._dataSocket = None
         
     def serve(self, daemon: bool = False):
         logging.info("Starting data/command threads as daemons: "+str(daemon))
@@ -55,6 +53,10 @@ class ExecutionServer(object):
                 daemon=daemon
             )
             self.commandThread.start()
+
+            #create a socket for main process to send data
+            self._dataSocket = self._context.socket(zmq.PUB)
+            self._dataSocket.connect("ipc://datapub")
 
             self._isRunning = True
 
@@ -170,32 +172,11 @@ class ExecutionServer(object):
                 )
             commandSocket.send(replyMessage.encode())
         
-    '''
-    def emitEvent(self, channel: str, payload: 'dict[str,Any]' = {}):
-        #self.heartbeat.resetHeartbeatTimestamp()
-        print ("emit event")
-        message = EventMessage(channel,payload)
-        self.dataSocket.send(message.encodeEvent())
-        
-    def registerCallCommand(self,command):
-        if command.name not in self.registeredCallCommands.keys():
-            self.registeredCallCommands[command.name] = command
-
-    def registerSpawnCommand(self,command):
-        if command.name not in self.registeredSpawnCommands.keys():
-            self.registeredSpawnCommands[command.name] = command
+    
+    def sendData(self, channel: str, payload: 'dict[str,Any]' = {}):
+        message = DataMessage(channel=channel, payload=payload)
+        if not self._isRunning or self._dataSocket is None:
+            raise RuntimeError("Cannot send data when server has not yet started")
+        self._dataSocket.send(message.encode())
         
     
-        
-    def _doQueryCommands(self, config: 'dict[str,Any]' = {}, args: 'list[str]' = []):
-        result = {'call':{},'spawn':{}}
-        for k,v in self.registeredCallCommands.items():
-            result['call'][k] = v.description
-        for k,v in self.registeredSpawnCommands.items():
-            result['spawn'][k] = v.description
-        return result
-        
-    def _doEmitEvent(self, config: 'dict[str,Any]' = {}, args: 'list[str]' = []):
-        self.emitEvent(config['channel'])
-        return {}
-    '''

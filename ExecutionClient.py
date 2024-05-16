@@ -11,6 +11,7 @@ from CommandMessage import *
 from DataMessage import *
 
 from typing import Optional
+from collections.abc import Callable
 
 class ExecutionClient(object):
     EVENT_POLL_TIMEOUT = 1 #in ms
@@ -138,6 +139,42 @@ class ExecutionClient(object):
                 logging.warning("Exception during processing of data socket message")
                 logging.exception(e)
         '''
+
+    def addDataListener(self, 
+        channelName: str, 
+        callbackFunction: 'Callable[[DataMessage],bool]'
+    ):
+        def _dataLoop(context, channelName, callbackFunction):
+            logging.debug(f"Create output thread for channel '{channelName}'")
+            try:
+                dataSocket = context.socket(zmq.SUB)
+                dataSocket.connect("ipc://datasub")
+                dataSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel(channelName))
+            except BaseException as e:
+                logging.critical(f"Exception during data socket setup for channel '{channelName}'")
+                logging.exception(e)
+                sys.exit(1)
+            while True:
+                rawMessage = dataSocket.recv()
+                try:
+                    message = DataMessage.fromBytes(rawMessage)
+                    #kill loop and thread on return False; explicitly check for return True
+                    ret = callbackFunction(message)
+                    if ret is True:
+                        continue
+                    elif ret is False:
+                        break
+                    else:
+                        raise RuntimeError("Callback return type needs to be {True|False}")
+                except BaseException as e:
+                    logging.warning(f"Exception during processing of data socket message of channel '{channelName}'")
+                    logging.exception(e)
+        callbackThread = threading.Thread(
+            target=_dataLoop, 
+            args=(self._context, channelName, callbackFunction),
+            daemon=True
+        )
+        callbackThread.start()
     
     def sendCommand(
         self, 
@@ -145,28 +182,9 @@ class ExecutionClient(object):
         commandType: str, 
         config: 'dict[str,Any]' = {}, 
         arguments: 'list[str]' = [],
-        onOutputCallback = None
+        callbackFunction: 'Optional[Callable[[DataMessage],bool]]' = None 
     ):
-        def _handleOutput(context, channelName, callbackFunction):
-            logging.debug(f"Create output thread for channel {channelName}")
-            try:
-                dataSocket = context.socket(zmq.SUB)
-                dataSocket.connect("ipc://datasub")
-                dataSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel(channelName))
-            except BaseException as e:
-                logging.critical("Exception during data socket setup")
-                logging.exception(e)
-                sys.exit(1)
-            while True:
-                rawMessage = dataSocket.recv()
-                try:
-                    message = DataMessage.fromBytes(rawMessage)
-                    if not callbackFunction(message): #kill loop and thread on return False/None
-                        break
-                except BaseException as e:
-                    logging.warning("Exception during processing of data socket message")
-                    logging.exception(e)
-                    
+        
         commandMessage = CommandMessage(
             commandName=commandName,
             commandType=commandType,
@@ -174,13 +192,8 @@ class ExecutionClient(object):
             arguments=arguments
         )
         
-        if onOutputCallback is not None:
-            callbackThread = threading.Thread(
-                target=_handleOutput, 
-                args=(self._context, commandMessage.getChannelName(), onOutputCallback),
-                daemon=True
-            )
-            callbackThread.start()
+        if callbackFunction is not None:
+            self.addDataListener(commandMessage.getChannelName(),callbackFunction)
         
         self.commandSocket.send(commandMessage.encode())
         rawReply = self.commandSocket.recv()
