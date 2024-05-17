@@ -18,13 +18,13 @@ server = ExecutionServer(
     privateKey=privateKeyServer
 )
 
-def callCmd(context, channel, config, arguments):
+def callCmd(channel, config, arguments):
     print ("calling",channel,config,arguments)
-    #contextCallCmd = zmq.Context()
+    contextCallCmd = zmq.Context()
     print("sending to channel ",channel)
-    dataSocket2 = context.socket(zmq.PUB)
+    dataSocket2 = contextCallCmd.socket(zmq.PUB)
     dataSocket2.connect("ipc://datapub")
-    time.sleep(0.1)
+    time.sleep(0.1) #need to wait for subscription to propage :-(
     dataSocket2.send(DataMessage(channel,{"fromData":2552}).encode())
 
     #time.sleep(1)

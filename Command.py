@@ -54,5 +54,5 @@ class CallCommand(Command):
         super().__init__(name)
         self.function = function
         
-    def __call__(self, context, channel: str, config: 'dict[str, Any]' = {}, argumentList: 'list[str]' =[]) -> 'dict[str, Any]':
-        return self.function(context, channel,config,argumentList)
+    def __call__(self, channel: str, config: 'dict[str, Any]' = {}, argumentList: 'list[str]' =[]) -> 'dict[str, Any]':
+        return self.function(channel,config,argumentList)

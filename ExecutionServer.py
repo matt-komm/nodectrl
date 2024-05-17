@@ -146,8 +146,7 @@ class ExecutionServer(object):
                 if message.commandType()=='call' and message.commandName() in callCommands.keys():
                     command = callCommands[message.commandName()]
                     logging.debug(f"Issue call command '{message.commandType()}/{message.commandName()}'")
-                    #dataSocket.send(DataMessage(message.getChannelName(),{}).encode())
-                    result = command(context, message.getChannelName(),message.config(),message.arguments())
+                    result = command(message.getChannelName(),message.config(),message.arguments())
                     
                     
                     replyMessage = message.createReply(
