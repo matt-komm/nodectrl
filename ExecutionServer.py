@@ -74,11 +74,11 @@ class ExecutionServer(object):
     ):
         logging.info(f"Starting data socket on '{dataPort}'")
         try:
-            dataSocketCollector = context.socket(zmq.SUB)
+            dataSocketCollector = context.socket(zmq.XSUB)
             dataSocketCollector.bind("ipc://datapub")
-            dataSocketCollector.setsockopt(zmq.SUBSCRIBE, b"")
+            #dataSocketCollector.setsockopt(zmq.SUBSCRIBE, b"")
 
-            dataSocket = context.socket(zmq.PUB)
+            dataSocket = context.socket(zmq.XPUB)
             if publicKey is not None and privateKey is not None:
                 logging.info(f"Encrypting data socket using keys")
                 dataSocket.curve_secretkey = privateKey
@@ -87,7 +87,8 @@ class ExecutionServer(object):
             dataSocket.bind(f"tcp://*:{dataPort}")
 
             #connect ipc socket to outgoing TCP socket; this will block forever
-            zmq.device(zmq.FORWARDER, dataSocketCollector, dataSocket)
+            #zmq.device(zmq.FORWARDER, dataSocketCollector, dataSocket)
+            zmq.proxy(dataSocketCollector, dataSocket)
 
         except BaseException as e:
             logging.critical("Exception in data socket setup/loop")
@@ -138,6 +139,7 @@ class ExecutionServer(object):
         while True:
             rawMessage = commandSocket.recv() #if this fails we are in trouble!
             message = CommandMessage.fromBytes(rawMessage)
+
             try:
                 logging.debug(f"Command '{message.commandType()}/{message.commandName()}:{message.uniqueId()}' received")
 
@@ -176,11 +178,7 @@ class ExecutionServer(object):
                     payload={'exception': {'type': type(e).__name__, 'message': str(e)}}
                 )
             commandSocket.send(replyMessage.encode())
-            dataSocket2 = context.socket(zmq.PUB)
-            dataSocket2.connect("ipc://datapub")
-            dataSocket2.send(DataMessage(message.getChannelName(),{"fromData":2}).encode())
-            dataSocket2.setsockopt( zmq.LINGER, 0 ) 
-            dataSocket2.close()
+            
         
     
     def sendData(self, channel: str, payload: 'dict[str,Any]' = {}):

@@ -111,7 +111,7 @@ class ExecutionClient(object):
     ):
         logging.info(f"Starting data socket on '{dataPort}'")
         try:
-            dataSocket = context.socket(zmq.SUB)
+            dataSocket = context.socket(zmq.XSUB)
             if serverPublicKey is not None:
                 logging.info(f"Encrypting data socket using server public key")
                 publicKeyData, privateKeyData = zmq.curve_keypair()
@@ -119,11 +119,12 @@ class ExecutionClient(object):
                 dataSocket.curve_publickey = publicKeyData 
                 dataSocket.curve_serverkey = serverPublicKey
             dataSocket.connect(f"tcp://{ipAddress}:{dataPort}")
-            dataSocket.setsockopt(zmq.SUBSCRIBE,b"")
+            #dataSocket.setsockopt(zmq.SUBSCRIBE,b"")
             
-            dataSocketDistributer = context.socket(zmq.PUB)
+            dataSocketDistributer = context.socket(zmq.XPUB)
             dataSocketDistributer.bind("ipc://datasub")
-            zmq.device(zmq.FORWARDER, dataSocket, dataSocketDistributer)
+            #zmq.device(zmq.FORWARDER, dataSocket, dataSocketDistributer)
+            zmq.proxy(dataSocket, dataSocketDistributer)
 
         except BaseException as e:
             logging.critical("Exception during data socket setup")
@@ -153,16 +154,20 @@ class ExecutionClient(object):
                 dataSocket.connect("ipc://datasub")
                 dataSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel(channelName))
                 
+                '''
                 heartbeatSocket = self._context.socket(zmq.SUB)
                 heartbeatSocket.connect("ipc://datasub")
                 heartbeatSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel('heartbeat'))
                 heartbeatSocket.recv() #blocks until heartbeat is received
                 heartbeatOK.set()
+                '''
             except BaseException as e:
                 logging.critical(f"Exception during data socket setup for channel '{channelName}'")
                 logging.exception(e)
                 sys.exit(1)
             while True:
+                dataSocket.poll(10)
+                heartbeatOK.set()
                 rawMessage = dataSocket.recv()
                 try:
                     message = DataMessage.fromBytes(rawMessage)
@@ -186,7 +191,6 @@ class ExecutionClient(object):
         )
         callbackThread.start()
         heartbeatOK.wait()
-        
         
     def sendCommand(
         self, 
