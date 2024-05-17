@@ -14,6 +14,9 @@ from typing import Optional
 from collections.abc import Callable
 
 class ExecutionClient(object):
+    DATASOCKET_INPUT="ipc://dataClient/input"
+    DATASOCKET_OUTPUT="ipc://dataClient/output"
+    
     EVENT_POLL_TIMEOUT = 1 #in ms
     EVENT_DELAY_TIMEOUT = 1 #in ms
     COMMAND_REPLY_TIMEOUT = 500 #in ms
@@ -100,6 +103,13 @@ class ExecutionClient(object):
                 self.commandSocket.curve_serverkey = self._serverPublicKey
             
             self.commandSocket.connect(f"tcp://{self._ipAddress}:{self._commandPort}")
+
+            '''
+            #create default data socket subscribed to everythings
+            self._defaultDataSocket = self._context.socket(zmq.SUB)
+            self._defaultDataSocket.connect("ipc://datasub")
+            self._defaultDataSocket.setsockopt(zmq.SUBSCRIBE,b"")
+            '''
             
             self._isRunning = True
 
@@ -122,7 +132,7 @@ class ExecutionClient(object):
             #dataSocket.setsockopt(zmq.SUBSCRIBE,b"")
             
             dataSocketDistributer = context.socket(zmq.XPUB)
-            dataSocketDistributer.bind("ipc://datasub")
+            dataSocketDistributer.bind(ExecutionClient.DATASOCKET_OUTPUT)
             #zmq.device(zmq.FORWARDER, dataSocket, dataSocketDistributer)
             zmq.proxy(dataSocket, dataSocketDistributer)
 
@@ -151,23 +161,21 @@ class ExecutionClient(object):
             logging.debug(f"Started output thread for channel '{channelName}'")
             try:
                 dataSocket = context.socket(zmq.SUB)
-                dataSocket.connect("ipc://datasub")
+                dataSocket.connect(ExecutionClient.DATASOCKET_OUTPUT)
                 dataSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel(channelName))
                 
-                '''
                 heartbeatSocket = self._context.socket(zmq.SUB)
-                heartbeatSocket.connect("ipc://datasub")
+                heartbeatSocket.connect(ExecutionClient.DATASOCKET_OUTPUT)
                 heartbeatSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel('heartbeat'))
                 heartbeatSocket.recv() #blocks until heartbeat is received
+                time.sleep(0.1) #need to wait a bit to ensure connection is established :-(
                 heartbeatOK.set()
-                '''
+
             except BaseException as e:
                 logging.critical(f"Exception during data socket setup for channel '{channelName}'")
                 logging.exception(e)
                 sys.exit(1)
             while True:
-                dataSocket.poll(10)
-                heartbeatOK.set()
                 rawMessage = dataSocket.recv()
                 try:
                     message = DataMessage.fromBytes(rawMessage)
@@ -190,7 +198,7 @@ class ExecutionClient(object):
             daemon=True
         )
         callbackThread.start()
-        heartbeatOK.wait()
+        #heartbeatOK.wait()
         
     def sendCommand(
         self, 
@@ -198,7 +206,8 @@ class ExecutionClient(object):
         commandType: str, 
         config: 'dict[str,Any]' = {}, 
         arguments: 'list[str]' = [],
-        callbackFunction: 'Optional[Callable[[DataMessage],bool]]' = None 
+        callbackFunction: 'Optional[Callable[[DataMessage],bool]]' = None,
+        timeout:int = -1
     ):
         
         commandMessage = CommandMessage(

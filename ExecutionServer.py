@@ -12,17 +12,22 @@ from Command import *
 from typing import Optional
 
 class ExecutionServer(object):    
+    DATASOCKET_INPUT="ipc://dataServer/input"
+    DATASOCKET_OUTPUT="ipc://dataServer/output"
+
     def __init__(
         self, 
         context: zmq.Context,
         commandPort: int,
-        dataPort: int, 
+        dataPortInput: int, 
+        dataPortOutput: int, 
         publicKey=None, 
         privateKey=None
     ):
         self._context = context
         self._commandPort = commandPort
-        self._dataPort = dataPort
+        self._dataPortInput = dataPortInput
+        self._dataPortOutput = dataPortOutput
         self._publicKey = publicKey
         self._privateKey = privateKey
         
@@ -38,13 +43,20 @@ class ExecutionServer(object):
         if self._isRunning:
             logging.warning("Event and command thread already executing")
         else:
-            self._dataThread = threading.Thread(
-                target=ExecutionServer._dataLoop, 
-                args=(self._context, self._dataPort, self._publicKey, self._privateKey),
+            self._dataOutputThread = threading.Thread(
+                target=ExecutionServer._dataLoopOutput, 
+                args=(self._context, self._dataPortOutput, self._publicKey, self._privateKey),
                 daemon=daemon
             )
-            self._dataThread.start()
+            self._dataOutputThread.start()
             
+            self._dataInputThread = threading.Thread(
+                target=ExecutionServer._dataLoopInput, 
+                args=(self._context, self._dataPortInput, self._publicKey, self._privateKey),
+                daemon=daemon
+            )
+            self._dataInputThread.start()
+
             self.commandThread = threading.Thread(
                 target=ExecutionServer._commandLoop, 
                 args=(self._context, self._commandPort, self._registeredCallCommands, self._registeredSpawnCommands, self._publicKey, self._privateKey),
@@ -61,24 +73,53 @@ class ExecutionServer(object):
 
             #create a socket for main process to send data
             self._dataSocket = self._context.socket(zmq.PUB)
-            self._dataSocket.connect("ipc://datapub")
+            self._dataSocket.connect(ExecutionServer.DATASOCKET_OUTPUT)
 
             self._isRunning = True
 
     #do not expose any class member to this method; communicate only via zmq inproc
-    def _dataLoop(
+    def _dataLoopOutput(
         context: zmq.Context, 
         dataPort: int, 
         publicKey: Optional[bytes], 
         privateKey: Optional[bytes]
     ):
-        logging.info(f"Starting data socket on '{dataPort}'")
+        logging.info(f"Starting data output socket on '{dataPort}'")
         try:
             dataSocketCollector = context.socket(zmq.XSUB)
-            dataSocketCollector.bind("ipc://datapub")
+            dataSocketCollector.bind(ExecutionServer.DATASOCKET_OUTPUT)
             #dataSocketCollector.setsockopt(zmq.SUBSCRIBE, b"")
 
             dataSocket = context.socket(zmq.XPUB)
+            if publicKey is not None and privateKey is not None:
+                logging.info(f"Encrypting data socket using keys")
+                dataSocket.curve_secretkey = privateKey
+                dataSocket.curve_publickey = publicKey
+                dataSocket.curve_server = True
+            dataSocket.bind(f"tcp://*:{dataPort}")
+
+            #connect ipc socket to outgoing TCP socket; this will block forever
+            #zmq.device(zmq.FORWARDER, dataSocketCollector, dataSocket)
+            zmq.proxy(dataSocketCollector, dataSocket)
+
+        except BaseException as e:
+            logging.critical("Exception in data socket setup/loop")
+            logging.exception(e)
+            sys.exit(1)
+
+    def _dataLoopInput(
+        context: zmq.Context, 
+        dataPort: int, 
+        publicKey: Optional[bytes], 
+        privateKey: Optional[bytes]
+    ):
+        logging.info(f"Starting data input socket on '{dataPort}'")
+        try:
+            dataSocketCollector = context.socket(zmq.XPUB)
+            dataSocketCollector.bind(ExecutionServer.DATASOCKET_INPUT)
+            #dataSocketCollector.setsockopt(zmq.SUBSCRIBE, b"")
+
+            dataSocket = context.socket(zmq.XSUB)
             if publicKey is not None and privateKey is not None:
                 logging.info(f"Encrypting data socket using keys")
                 dataSocket.curve_secretkey = privateKey
@@ -99,7 +140,7 @@ class ExecutionServer(object):
         context: zmq.Context
     ):
         dataSocket = context.socket(zmq.PUB)
-        dataSocket.connect("ipc://datapub")
+        dataSocket.connect("ipc://dataServerOutput")
         while True:
             message = DataMessage(
                 channel='heartbeat',
@@ -128,14 +169,12 @@ class ExecutionServer(object):
                 commandSocket.curve_server = True
             commandSocket.bind(f"tcp://*:{commandPort}")
 
-            #dataSocket = context.socket(zmq.PUB)
-            #dataSocket.connect("ipc://datapub")
-
         except BaseException as e:
             logging.critical("Exception during command socket setup")
             logging.exception(e)
             sys.exit(1)
 
+        #commandSocket.poll(1000)
         while True:
             rawMessage = commandSocket.recv() #if this fails we are in trouble!
             message = CommandMessage.fromBytes(rawMessage)
@@ -147,8 +186,7 @@ class ExecutionServer(object):
                     command = callCommands[message.commandName()]
                     logging.debug(f"Issue call command '{message.commandType()}/{message.commandName()}'")
                     result = command(message.getChannelName(),message.config(),message.arguments())
-                    
-                    
+
                     replyMessage = message.createReply(
                         success=True,
                         payload=result

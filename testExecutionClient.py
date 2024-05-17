@@ -23,9 +23,10 @@ def callCmd(channel, config, arguments):
     contextCallCmd = zmq.Context()
     print("sending to channel ",channel)
     dataSocket2 = contextCallCmd.socket(zmq.PUB)
-    dataSocket2.connect("ipc://datapub")
-    time.sleep(0.1) #need to wait for subscription to propage :-(
-    dataSocket2.send(DataMessage(channel,{"fromData":2552}).encode())
+    dataSocket2.connect("ipc://dataServerOutput")
+    time.sleep(0.2) #need to wait for subscription to propage :-(
+    for i in range(10):
+        dataSocket2.send(DataMessage(channel,{"fromData":i}).encode())
 
     #time.sleep(1)
     return {"awesome":1}
@@ -47,13 +48,8 @@ client.connect()
 
 def handleOutput(message: DataMessage):
     print("handling data message ",message)
+    #time.sleep(1)
     return True #kills thread
-
-def testCallback(message: DataMessage):
-    print ('recv test callback: ',message)
-    return True
-
-client.addDataListener('cmdLoop',testCallback)
 
 reply = client.sendCommand(
     commandName='testCallCmd',
@@ -63,3 +59,4 @@ reply = client.sendCommand(
     callbackFunction=handleOutput
 )
 print (reply)
+time.sleep(1)
