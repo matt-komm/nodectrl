@@ -12,24 +12,31 @@ from Command import *
 from typing import Optional
 
 class ExecutionServer(object):    
-    DATASOCKET_INPUT="ipc://dataServer/input"
-    DATASOCKET_OUTPUT="ipc://dataServer/output"
+    HEARTBEAT_INTERVAL = 200 #in ms
+
+
+    DATA_SUFFIX = 1
 
     def __init__(
         self, 
         context: zmq.Context,
         commandPort: int,
-        dataPortInput: int, 
-        dataPortOutput: int, 
+        dataInputPort: int, 
+        dataOutputPort: int, 
         publicKey=None, 
         privateKey=None
     ):
         self._context = context
         self._commandPort = commandPort
-        self._dataPortInput = dataPortInput
-        self._dataPortOutput = dataPortOutput
+        self._dataInputPort = dataInputPort
+        self._dataOutputPort = dataOutputPort
         self._publicKey = publicKey
         self._privateKey = privateKey
+
+        self._dataInputAddress="ipc://dataServer/input"+str(os.getpid()*1000+ExecutionServer.DATA_SUFFIX)
+        self._dataOutputAddress="ipc://dataServer/output"+str(os.getpid()*1000+ExecutionServer.DATA_SUFFIX)
+
+        ExecutionServer.DATA_SUFFIX += 1
         
         self._registeredCallCommands = {}
         self._registeredSpawnCommands = {}
@@ -44,15 +51,29 @@ class ExecutionServer(object):
             logging.warning("Event and command thread already executing")
         else:
             self._dataOutputThread = threading.Thread(
-                target=ExecutionServer._dataLoopOutput, 
-                args=(self._context, self._dataPortOutput, self._publicKey, self._privateKey),
+                target=ExecutionServer._dataLoop, 
+                args=(
+                    self._context, 
+                    self._dataOutputPort, 
+                    self._dataOutputAddress,
+                    True, # set as output 
+                    self._publicKey, 
+                    self._privateKey
+                ),
                 daemon=daemon
             )
             self._dataOutputThread.start()
             
             self._dataInputThread = threading.Thread(
-                target=ExecutionServer._dataLoopInput, 
-                args=(self._context, self._dataPortInput, self._publicKey, self._privateKey),
+                target=ExecutionServer._dataLoop, 
+                args=(
+                    self._context, 
+                    self._dataInputPort, 
+                    self._dataInputAddress,
+                    False, # set as input 
+                    self._publicKey, 
+                    self._privateKey
+                ),
                 daemon=daemon
             )
             self._dataInputThread.start()
@@ -66,31 +87,33 @@ class ExecutionServer(object):
 
             self.heartbeatThread = threading.Thread(
                 target=ExecutionServer._heartbeatLoop, 
-                args=(self._context,),
+                args=(self._context,self._dataOutputAddress),
                 daemon=daemon
             )
             self.heartbeatThread.start()
 
             #create a socket for main process to send data
             self._dataSocket = self._context.socket(zmq.PUB)
-            self._dataSocket.connect(ExecutionServer.DATASOCKET_OUTPUT)
+            self._dataSocket.connect(self._dataOutputAddress)
 
             self._isRunning = True
 
     #do not expose any class member to this method; communicate only via zmq inproc
-    def _dataLoopOutput(
+    def _dataLoop(
         context: zmq.Context, 
-        dataPort: int, 
+        dataPort: int,
+        internalAddress: str,
+        isOutput: bool,
         publicKey: Optional[bytes], 
         privateKey: Optional[bytes]
     ):
         logging.info(f"Starting data output socket on '{dataPort}'")
         try:
-            dataSocketCollector = context.socket(zmq.XSUB)
-            dataSocketCollector.bind(ExecutionServer.DATASOCKET_OUTPUT)
+            dataSocketCollector = context.socket(zmq.XSUB if isOutput else zmq.XPUB)
+            dataSocketCollector.bind(internalAddress)
             #dataSocketCollector.setsockopt(zmq.SUBSCRIBE, b"")
 
-            dataSocket = context.socket(zmq.XPUB)
+            dataSocket = context.socket(zmq.XPUB if isOutput else zmq.XSUB)
             if publicKey is not None and privateKey is not None:
                 logging.info(f"Encrypting data socket using keys")
                 dataSocket.curve_secretkey = privateKey
@@ -100,54 +123,35 @@ class ExecutionServer(object):
 
             #connect ipc socket to outgoing TCP socket; this will block forever
             #zmq.device(zmq.FORWARDER, dataSocketCollector, dataSocket)
-            zmq.proxy(dataSocketCollector, dataSocket)
+            if isOutput:
+                zmq.proxy(dataSocketCollector, dataSocket)
+            else:
+                zmq.proxy(dataSocket, dataSocketCollector)
 
         except BaseException as e:
             logging.critical("Exception in data socket setup/loop")
             logging.exception(e)
             sys.exit(1)
 
-    def _dataLoopInput(
-        context: zmq.Context, 
-        dataPort: int, 
-        publicKey: Optional[bytes], 
-        privateKey: Optional[bytes]
-    ):
-        logging.info(f"Starting data input socket on '{dataPort}'")
-        try:
-            dataSocketCollector = context.socket(zmq.XPUB)
-            dataSocketCollector.bind(ExecutionServer.DATASOCKET_INPUT)
-            #dataSocketCollector.setsockopt(zmq.SUBSCRIBE, b"")
-
-            dataSocket = context.socket(zmq.XSUB)
-            if publicKey is not None and privateKey is not None:
-                logging.info(f"Encrypting data socket using keys")
-                dataSocket.curve_secretkey = privateKey
-                dataSocket.curve_publickey = publicKey
-                dataSocket.curve_server = True
-            dataSocket.bind(f"tcp://*:{dataPort}")
-
-            #connect ipc socket to outgoing TCP socket; this will block forever
-            #zmq.device(zmq.FORWARDER, dataSocketCollector, dataSocket)
-            zmq.proxy(dataSocketCollector, dataSocket)
-
-        except BaseException as e:
-            logging.critical("Exception in data socket setup/loop")
-            logging.exception(e)
-            sys.exit(1)
 
     def _heartbeatLoop(
-        context: zmq.Context
+        context: zmq.Context,
+        internalAddress: str
     ):
-        dataSocket = context.socket(zmq.PUB)
-        dataSocket.connect("ipc://dataServerOutput")
-        while True:
-            message = DataMessage(
-                channel='heartbeat',
-                payload={}
-            )
-            dataSocket.send(message.encode())
-            time.sleep(0.25)
+        try:
+            dataSocket = context.socket(zmq.PUB)
+            dataSocket.connect(internalAddress)
+            while True:
+                message = DataMessage(
+                    channel='heartbeat',
+                    payload={'origin': 'server'}
+                )
+                dataSocket.send(message.encode())
+                time.sleep(ExecutionServer.HEARTBEAT_INTERVAL*1e-3)
+        except BaseException as e:
+            logging.critical("Exception in heartbeat loop")
+            logging.exception(e)
+            sys.exit(1)
 
     #do not expose any class member to this method; communicate only via zmq inproc if needed
     def _commandLoop(
@@ -174,7 +178,6 @@ class ExecutionServer(object):
             logging.exception(e)
             sys.exit(1)
 
-        #commandSocket.poll(1000)
         while True:
             rawMessage = commandSocket.recv() #if this fails we are in trouble!
             message = CommandMessage.fromBytes(rawMessage)
@@ -216,6 +219,57 @@ class ExecutionServer(object):
                 )
             commandSocket.send(replyMessage.encode())
             
+
+    def addDataListener(self, 
+        channelName: str, 
+        callbackFunction: 'Callable[[DataMessage],bool]',
+        callbackArguments: 'list[Any]' = []
+    ):
+        logging.info(f"Adding data listener for channel '{channelName}'")
+        heartbeatOK = threading.Event()
+        def _dataLoop(context, dataAddress, channelName, callbackFunction, callbackArguments):
+            logging.debug(f"Started output thread for channel '{channelName}'")
+            try:
+                dataSocket = context.socket(zmq.SUB)
+                dataSocket.connect(dataAddress)
+                dataSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel(channelName))
+                
+                heartbeatSocket = self._context.socket(zmq.SUB)
+                heartbeatSocket.connect(dataAddress)
+                heartbeatSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel('heartbeat'))
+                heartbeatSocket.recv() #blocks until heartbeat is received
+                time.sleep(0.1) #need to wait a bit to ensure connection is established :-(
+                heartbeatOK.set()
+                heartbeatSocket.close()
+
+            except BaseException as e:
+                logging.critical(f"Exception during data socket setup for channel '{channelName}'")
+                logging.exception(e)
+                sys.exit(1)
+            while True:
+                rawMessage = dataSocket.recv()
+                try:
+                    message = DataMessage.fromBytes(rawMessage)
+                    #kill loop and thread on return False; explicitly check for return True
+                    ret = callbackFunction(message,*callbackArguments)
+                    if ret is True:
+                        continue
+                    elif ret is False:
+                        break
+                    else:
+                        raise RuntimeError("Callback return type needs to be {True|False}")
+                except BaseException as e:
+                    logging.warning(f"Exception during processing of data socket message of channel '{channelName}'")
+                    logging.exception(e)
+            logging.debug(f"Closing output thread for channel '{channelName}'")
+
+        callbackThread = threading.Thread(
+            target=_dataLoop, 
+            args=(self._context, self._dataInputAddress, channelName, callbackFunction, callbackArguments),
+            daemon=True
+        )
+        callbackThread.start()
+        heartbeatOK.wait()
         
     
     def sendData(self, channel: str, payload: 'dict[str,Any]' = {}):

@@ -13,7 +13,8 @@ publicKeyServer, privateKeyServer = zmq.curve_keypair()
 server = ExecutionServer(
     context1,
     commandPort='3333',
-    dataPort='3334', 
+    dataInputPort='3334', 
+    dataOutputPort='3335',
     publicKey=publicKeyServer, 
     privateKey=privateKeyServer
 )
@@ -40,12 +41,23 @@ client = ExecutionClient(
     context2,
     ipAddress='127.0.0.1', 
     commandPort='3333', 
-    dataPort='3334', 
+    dataInputPort='3334', 
+    dataOutputPort='3335',
     serverPublicKey=publicKeyServer
 )
 client.connect()
+
+
+def printHearbeat(message: DataMessage, *args):
+    print (message)
+    return True
+
+#client.addDataListener('heartbeat',printHearbeat)
+#server.addDataListener('heartbeat',printHearbeat)
+
 #time.sleep(1)
 
+'''
 def handleOutput(message: DataMessage):
     print("handling data message ",message)
     #time.sleep(1)
@@ -59,4 +71,5 @@ reply = client.sendCommand(
     callbackFunction=handleOutput
 )
 print (reply)
+'''
 time.sleep(1)
