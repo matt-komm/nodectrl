@@ -117,7 +117,9 @@ class ShellSpawn(Spawn):
             line = proc.stderr.readline().strip()
         dataSocket.send(DataMessage(channel,{'terminated':proc.returncode}).encode())
         
-    
+    def onInputEvent(self, message: DataMessage):
+        logging.debug(f"'{message.channel()}' received input: '{message}'")
+        return True
     
 
 

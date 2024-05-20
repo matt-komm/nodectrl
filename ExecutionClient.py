@@ -95,7 +95,11 @@ class ExecutionClient(object):
 
             self.commandSocket = None
             self._openCommandSocket()
-            
+
+
+            self.eventSocket = self._context.socket(zmq.PUB)
+            self.eventSocket.connect(self._dataInputAddress)
+
             self._isRunning = True
 
     def _openCommandSocket(self):
@@ -142,7 +146,6 @@ class ExecutionClient(object):
         except BaseException as e:
             logging.critical("Exception during data socket setup")
             logging.exception(e)
-            sys.exit(1)
 
     def _heartbeatLoop(
         context: zmq.Context,
@@ -161,65 +164,6 @@ class ExecutionClient(object):
         except BaseException as e:
             logging.critical("Exception in heartbeat loop")
             logging.exception(e)
-            sys.exit(1)
-
-    def addDataListener(
-        self, 
-        channelName: str, 
-        callbackFunction: 'Callable[[DataMessage],bool]',
-        callbackArguments: 'list[Any]' = []
-    ):
-        logging.info(f"Adding data listener for channel '{channelName}'")
-        heartbeatDone = threading.Event()
-        hasTimedOut = False
-        def _dataLoop(context, dataAddress, channelName, callbackFunction, callbackArguments):
-            logging.debug(f"Started output thread for channel '{channelName}'")
-            try:
-                dataSocket = context.socket(zmq.SUB)
-                dataSocket.connect(dataAddress)
-                dataSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel(channelName))
-                
-                heartbeatSocket = self._context.socket(zmq.SUB)
-                heartbeatSocket.connect(dataAddress)
-                heartbeatSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel('heartbeat'))
-                if heartbeatSocket.poll(ExecutionClient.TIMEOUT, zmq.POLLIN):
-                    heartbeatSocket.recv() #blocks until heartbeat is received
-                else:
-                    hasTimedOut = True
-                heartbeatDone.set()
-                heartbeatSocket.close()
-
-            except BaseException as e:
-                logging.critical(f"Exception during data socket setup for channel '{channelName}'")
-                logging.exception(e)
-                sys.exit(1)
-            while True:
-                rawMessage = dataSocket.recv()
-                try:
-                    message = DataMessage.fromBytes(rawMessage)
-                    #kill loop and thread on return False; explicitly check for return True
-                    ret = callbackFunction(message,*callbackArguments)
-                    if ret is True:
-                        continue
-                    elif ret is False:
-                        break
-                    else:
-                        raise RuntimeError("Callback return type needs to be {True|False}")
-                except BaseException as e:
-                    logging.warning(f"Exception during processing of data socket message of channel '{channelName}'")
-                    logging.exception(e)
-            logging.debug(f"Closing output thread for channel '{channelName}'")
-
-        callbackThread = threading.Thread(
-            target=_dataLoop,
-            args=(self._context, self._dataOutputAddress, channelName, callbackFunction, callbackArguments),
-            daemon=True
-        )
-        callbackThread.start()
-        heartbeatDone.wait()
-        if hasTimedOut:
-            return False
-        return True
         
     def sendCommand(
         self, 
@@ -238,7 +182,12 @@ class ExecutionClient(object):
         )
         
         if callbackFunction is not None:
-            if not self.addDataListener(commandMessage.getChannelName(),callbackFunction,callbackArguments):
+            if not DataListener.createListener(
+                self._dataOutputAddress,
+                commandMessage.getChannelName(),
+                callbackFunction,
+                callbackArguments
+            ):
                 return None
 
         self.commandSocket.send(commandMessage.encode())
@@ -250,6 +199,13 @@ class ExecutionClient(object):
             self._openCommandSocket()
             return None
         
+    def sendEvent(
+        self,
+        channel: bytes,
+        payload: 'dict[str, Any]' = {}
+    ):
+        #TODO: check encoding of channel!!!
+        self.eventSocket.send(DataMessage(channel,payload).encode())
 
         
     

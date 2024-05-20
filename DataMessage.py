@@ -1,4 +1,10 @@
+import logging
+import threading
+
+import zmq 
+
 from Message import *
+from collections.abc import Callable
 
 class DataMessage(object):
     SEPARATOR = '||'
@@ -40,3 +46,66 @@ class DataMessage(object):
             payload = Message.stringToJSON(messageSplit[1])
         )
         return message
+
+
+class DataListener():
+    TIMEOUT = 1000
+
+    @staticmethod
+    def createListener(
+        dataAddress: str,
+        channelName: str, 
+        callbackFunction: 'Callable[[DataMessage],bool]',
+        callbackArguments: 'list[Any]' = []
+    ):
+        logging.info(f"Adding data listener for channel '{channelName}'")
+        heartbeatDone = threading.Event()
+        hasTimedOut = False
+        def _dataLoop(dataAddress, channelName, callbackFunction, callbackArguments):
+            logging.debug(f"Started output thread for channel '{channelName}'")
+            try:
+                context = zmq.Context()
+                dataSocket = context.socket(zmq.SUB)
+                dataSocket.connect(dataAddress)
+                dataSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel(channelName))
+                
+                heartbeatSocket = context.socket(zmq.SUB)
+                heartbeatSocket.connect(dataAddress)
+                heartbeatSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel('heartbeat'))
+                if heartbeatSocket.poll(DataListener.TIMEOUT, zmq.POLLIN):
+                    heartbeatSocket.recv() #blocks until heartbeat is received
+                else:
+                    hasTimedOut = True
+                heartbeatDone.set()
+                heartbeatSocket.close()
+
+            except BaseException as e:
+                logging.critical(f"Exception during data socket setup for channel '{channelName}'")
+                logging.exception(e)
+            while True:
+                rawMessage = dataSocket.recv()
+                try:
+                    message = DataMessage.fromBytes(rawMessage)
+                    #kill loop and thread on return False; explicitly check for return True
+                    ret = callbackFunction(message,*callbackArguments)
+                    if ret is True:
+                        continue
+                    elif ret is False:
+                        break
+                    else:
+                        raise RuntimeError("Callback return type needs to be {True|False}")
+                except BaseException as e:
+                    logging.warning(f"Exception during processing of data socket message of channel '{channelName}'")
+                    logging.exception(e)
+            logging.debug(f"Closing output thread for channel '{channelName}'")
+
+        callbackThread = threading.Thread(
+            target=_dataLoop,
+            args=(dataAddress, channelName, callbackFunction, callbackArguments),
+            daemon=True
+        )
+        callbackThread.start()
+        heartbeatDone.wait()
+        if hasTimedOut:
+            return False
+        return True

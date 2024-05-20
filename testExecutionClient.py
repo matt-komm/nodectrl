@@ -53,6 +53,10 @@ reply = client.sendCommand(
     callbackFunction=handleOutput
 )
 print (reply)
+time.sleep(0.1)
+client.sendEvent(reply.channel(),{'huhu':1})
+
+
 '''
 while True:
     input("press to send command")

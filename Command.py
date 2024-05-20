@@ -9,24 +9,8 @@ from typing import Any
 class Spawn(object):
     #todo: always fork; run /usr/bin/time -vv to montor performance; can attach stuff to python procs for monitoring the status
     def __init__(self):
-        pass
+        self.onInputEvent = None
         
-    def start(self):
-        raise NotImplementedError()
-        
-    #in ms
-    def uptime(self):
-        raise NotImplementedError()
-
-    def terminate(self):
-        raise NotImplementedError()
-        
-    def kill(self):
-        raise NotImplementedError()
-        
-    def status(self):
-        raise NotImplementedError()
-
 class Command(object):
     def __init__(self, name: str):
         self._name = name
@@ -41,7 +25,7 @@ class SpawnCommand(Command):
         name: str
     ):
         super().__init__(name)
-        
+
     def __call__(
             self, 
             inputAddress: str, 
@@ -51,6 +35,8 @@ class SpawnCommand(Command):
             argumentList: 'list[str]' =[]
         ) -> 'tuple[Spawn, dict[str, Any]]':
         raise NotImplementedError()
+    
+
 
 class CallCommand(Command):
     def __init__(

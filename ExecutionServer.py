@@ -231,11 +231,16 @@ class ExecutionServer(object):
                         message.config(),
                         message.arguments()
                     )
+                    if spawn.onInputEvent is not None:
+                        DataListener.createListener(
+                            internalInputAddress,
+                            message.getChannelName(),
+                            spawn.onInputEvent,
+                        )
                     replyMessage = message.createReply(
                         success=True,
                         payload=result
                     )
-                    #TODO: what is the channel?
                     spawns[f'{message.commandType()}/{message.commandName()}/{message.uniqueId()}'] = spawn
                     logging.debug(f"Command '{message.commandType()}/{message.commandName()}' sucessful")
                 else:
@@ -250,59 +255,6 @@ class ExecutionServer(object):
                 )
             commandSocket.send(replyMessage.encode())
             
-
-    def addDataListener(
-        self, 
-        channelName: str, 
-        callbackFunction: 'Callable[[DataMessage],bool]',
-        callbackArguments: 'list[Any]' = []
-    ):
-        logging.info(f"Adding data listener for channel '{channelName}'")
-        heartbeatOK = threading.Event()
-        def _dataLoop(context, dataAddress, channelName, callbackFunction, callbackArguments):
-            logging.debug(f"Started output thread for channel '{channelName}'")
-            try:
-                dataSocket = context.socket(zmq.SUB)
-                dataSocket.connect(dataAddress)
-                dataSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel(channelName))
-                
-                heartbeatSocket = self._context.socket(zmq.SUB)
-                heartbeatSocket.connect(dataAddress)
-                heartbeatSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel('heartbeat'))
-                heartbeatSocket.recv() #blocks until heartbeat is received
-                #time.sleep(0.1) #need to wait a bit to ensure connection is established :-(
-                heartbeatOK.set()
-                heartbeatSocket.close()
-
-            except BaseException as e:
-                logging.critical(f"Exception during data socket setup for channel '{channelName}'")
-                logging.exception(e)
-                sys.exit(1)
-            while True:
-                rawMessage = dataSocket.recv()
-                try:
-                    message = DataMessage.fromBytes(rawMessage)
-                    #kill loop and thread on return False; explicitly check for return True
-                    ret = callbackFunction(message,*callbackArguments)
-                    if ret is True:
-                        continue
-                    elif ret is False:
-                        break
-                    else:
-                        raise RuntimeError("Callback return type needs to be {True|False}")
-                except BaseException as e:
-                    logging.warning(f"Exception during processing of data socket message of channel '{channelName}'")
-                    logging.exception(e)
-            logging.debug(f"Closing output thread for channel '{channelName}'")
-
-        callbackThread = threading.Thread(
-            target=_dataLoop, 
-            args=(self._context, self._dataInputAddress, channelName, callbackFunction, callbackArguments),
-            daemon=True
-        )
-        callbackThread.start()
-        heartbeatOK.wait()
-        
     
     def sendData(self, channel: str, payload: 'dict[str,Any]' = {}):
         message = DataMessage(channel=channel, payload=payload)

@@ -60,6 +60,7 @@ class CommandMessage(object):
             commandType = self._commandType,
             success = success,
             uniqueId = self._uniqueId,
+            channel = self.getChannelName(),
             payload = payload
         )
 
@@ -96,13 +97,15 @@ class CommandReply(object):
         commandName: str,
         commandType: str,
         success: bool,
-        uniqueId: int = -1,
+        uniqueId: int,
+        channel: bytes,
         payload: 'dict[str, Any]' = {}
     ):
         self._commandName = commandName
         self._commandType = commandType
         self._uniqueId = uniqueId
         self._success = success
+        self._channel = channel
         self._payload = payload
 
     def commandName(self) -> str:
@@ -113,6 +116,9 @@ class CommandReply(object):
     
     def uniqueId(self) -> str:
         return self._uniqueId
+    
+    def getChannelName(self) -> bytes:
+        return self._channel
     
     def success(self) -> bool:
         return self._success
@@ -126,12 +132,13 @@ class CommandReply(object):
             'type': self._commandType,
             'id': self._uniqueId,
             'success': self._success,
+            'channel': self._channel,
             'payload' : self._payload
         }
         return Message.encodeJSON(replyJSON)
     
     def __str__(self):
-        return f"CommandReply(commandName={self._commandName}, commandType={self._commandType}, uniqueId={self._uniqueId}, success={self._success}, payload={self._payload})"
+        return f"CommandReply(commandName={self._commandName}, commandType={self._commandType}, uniqueId={self._uniqueId}, channel={self._channel}, success={self._success}, payload={self._payload})"
 
 
     @staticmethod
@@ -142,6 +149,7 @@ class CommandReply(object):
             commandType = replyJSON['type'],
             uniqueId = replyJSON['id'],
             success = replyJSON['success'],
+            channel = replyJSON['channel'],
             payload = replyJSON['payload']
         )
         return message
