@@ -42,17 +42,31 @@ class SpawnCommand(Command):
     ):
         super().__init__(name)
         
-    def __call__(self, channel: str, config: 'dict[str, str]' = {}, argumentList: 'list[str]' =[]) -> 'tuple[Spawn, dict[str, Any]]':
+    def __call__(
+            self, 
+            inputAddress: str, 
+            outputAddress: str,
+            channel: str, 
+            config: 'dict[str, str]' = {}, 
+            argumentList: 'list[str]' =[]
+        ) -> 'tuple[Spawn, dict[str, Any]]':
         raise NotImplementedError()
 
 class CallCommand(Command):
     def __init__(
         self, 
         name,
-        function: 'Callable[[dict[str, Any],list[str]],dict[str, Any]]'
+        function: 'Callable[[str,str,str,dict[str, Any],list[str]],dict[str, Any]]'
     ):
         super().__init__(name)
         self.function = function
         
-    def __call__(self, channel: str, config: 'dict[str, Any]' = {}, argumentList: 'list[str]' =[]) -> 'dict[str, Any]':
-        return self.function(channel,config,argumentList)
+    def __call__(
+            self, 
+            inputAddress: str, 
+            outputAddress: str,
+            channel: str, 
+            config: 'dict[str, str]' = {}, 
+            argumentList: 'list[str]' =[]
+        ) -> 'tuple[Spawn, dict[str, Any]]':
+        return self.function(inputAddress,outputAddress,channel,config,argumentList)

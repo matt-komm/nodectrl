@@ -15,6 +15,7 @@ from collections.abc import Callable
 
 class ExecutionClient(object):
     HEARTBEAT_INTERVAL = 200 #in ms
+    TIMEOUT = 1000
 
     DATA_SUFFIX = 1
     
@@ -25,6 +26,8 @@ class ExecutionClient(object):
         commandPort: int, 
         dataInputPort: int, 
         dataOutputPort: int, 
+        internalDataInputAddress: str,
+        internalDataOutputAddress: str,
         serverPublicKey=None
     ):
         self._context = context
@@ -34,8 +37,8 @@ class ExecutionClient(object):
         self._dataOutputPort = dataOutputPort
         self._serverPublicKey = serverPublicKey
         
-        self._dataInputAddress="ipc://dataClient/input"+str(os.getpid()*1000+ExecutionClient.DATA_SUFFIX)
-        self._dataOutputAddress="ipc://dataClient/output"+str(os.getpid()*1000+ExecutionClient.DATA_SUFFIX)
+        self._dataInputAddress=internalDataInputAddress
+        self._dataOutputAddress=internalDataOutputAddress
 
         ExecutionClient.DATA_SUFFIX += 1
 
@@ -45,43 +48,10 @@ class ExecutionClient(object):
 
         self.commandSocket = None
 
-        '''
-        self.commandSocket = self.context.socket(zmq.REQ)
-        
-        
-        if serverPublicKey is not None:
-            publicKeyCommand, privateKeyCommand = zmq.curve_keypair()
-            self.commandSocket.curve_secretkey = privateKeyCommand 
-            self.commandSocket.curve_publickey = publicKeyCommand
-            self.commandSocket.curve_serverkey = self.serverPublicKey
-            
-            publicKeyData, privateKeyData = zmq.curve_keypair()
-            self.dataSocket.curve_secretkey = privateKeyData
-            self.dataSocket.curve_publickey = publicKeyData 
-            self.dataSocket.curve_serverkey = self.serverPublicKey
-        
-        self.commandSocket.connect(f"tcp://{self.ipAddress}:{self.commandPort}")
-        self.dataSocket.connect(f"tcp://{self.ipAddress}:{self.dataPort}")
-        self.dataSocket.setsockopt(zmq.SUBSCRIBE,b"")
-        
-        self.eventLoopReady = threading.Event()
-        self.eventConnectionReady = threading.Event()
-        
-        self.eventThread = threading.Thread(target=self._eventLoop, daemon=True)
-        self.eventThread.start()
-        
-        self.commandQueue = queue.SimpleQueue()
-        self.commandThreadReady = threading.Event()
-        self.commandThread = threading.Thread(target=self._commandLoop, daemon=True)
-        self.commandThread.start()
-        
-        self.eventLoopReady.wait()
-        message = CommandMessage('emit_event','call',config={'channel':'connection'})
-        self.commandSocket.send(message.encodeCommand())
-        self.commandSocket.recv()
-        #self.eventConnectionReady.wait()
-        '''
-
+        #TODO
+        #track status of connection; prevent sending commands in case of connection failure
+        #but keep threads alive for possible reconnection
+        #indicate critial errors, ie. due to config, and exit
 
     def connect(self, daemon: bool = False):
         logging.info("Starting data/command threads as daemons: "+str(daemon))
@@ -116,23 +86,31 @@ class ExecutionClient(object):
             )
             self._dataInputThread.start()
 
-            self.commandSocket = self._context.socket(zmq.REQ)
-            if self._serverPublicKey is not None:
-                publicKeyCommand, privateKeyCommand = zmq.curve_keypair()
-                self.commandSocket.curve_secretkey = privateKeyCommand 
-                self.commandSocket.curve_publickey = publicKeyCommand
-                self.commandSocket.curve_serverkey = self._serverPublicKey
-            
-            self.commandSocket.connect(f"tcp://{self._ipAddress}:{self._commandPort}")
-
             self._heartbeatThread = threading.Thread(
                 target=ExecutionClient._heartbeatLoop, 
                 args=(self._context,self._dataInputAddress),
                 daemon=daemon
             )
             self._heartbeatThread.start()
+
+            self.commandSocket = None
+            self._openCommandSocket()
             
             self._isRunning = True
+
+    def _openCommandSocket(self):
+        if self.commandSocket is not None:
+            self.commandSocket.setsockopt(zmq.LINGER, 0)
+            self.commandSocket.close()
+
+        self.commandSocket = self._context.socket(zmq.REQ)
+        if self._serverPublicKey is not None:
+            publicKeyCommand, privateKeyCommand = zmq.curve_keypair()
+            self.commandSocket.curve_secretkey = privateKeyCommand 
+            self.commandSocket.curve_publickey = publicKeyCommand
+            self.commandSocket.curve_serverkey = self._serverPublicKey
+        
+        self.commandSocket.connect(f"tcp://{self._ipAddress}:{self._commandPort}")
 
     def _dataLoop(
         context: zmq.Context, 
@@ -185,13 +163,15 @@ class ExecutionClient(object):
             logging.exception(e)
             sys.exit(1)
 
-    def addDataListener(self, 
+    def addDataListener(
+        self, 
         channelName: str, 
         callbackFunction: 'Callable[[DataMessage],bool]',
         callbackArguments: 'list[Any]' = []
     ):
         logging.info(f"Adding data listener for channel '{channelName}'")
-        heartbeatOK = threading.Event()
+        heartbeatDone = threading.Event()
+        hasTimedOut = False
         def _dataLoop(context, dataAddress, channelName, callbackFunction, callbackArguments):
             logging.debug(f"Started output thread for channel '{channelName}'")
             try:
@@ -202,9 +182,11 @@ class ExecutionClient(object):
                 heartbeatSocket = self._context.socket(zmq.SUB)
                 heartbeatSocket.connect(dataAddress)
                 heartbeatSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel('heartbeat'))
-                heartbeatSocket.recv() #blocks until heartbeat is received
-                time.sleep(0.1) #need to wait a bit to ensure connection is established :-(
-                heartbeatOK.set()
+                if heartbeatSocket.poll(ExecutionClient.TIMEOUT, zmq.POLLIN):
+                    heartbeatSocket.recv() #blocks until heartbeat is received
+                else:
+                    hasTimedOut = True
+                heartbeatDone.set()
                 heartbeatSocket.close()
 
             except BaseException as e:
@@ -229,12 +211,15 @@ class ExecutionClient(object):
             logging.debug(f"Closing output thread for channel '{channelName}'")
 
         callbackThread = threading.Thread(
-            target=_dataLoop, 
+            target=_dataLoop,
             args=(self._context, self._dataOutputAddress, channelName, callbackFunction, callbackArguments),
             daemon=True
         )
         callbackThread.start()
-        heartbeatOK.wait()
+        heartbeatDone.wait()
+        if hasTimedOut:
+            return False
+        return True
         
     def sendCommand(
         self, 
@@ -243,10 +228,8 @@ class ExecutionClient(object):
         config: 'dict[str,Any]' = {}, 
         arguments: 'list[str]' = [],
         callbackFunction: 'Optional[Callable[[DataMessage],bool]]' = None,
-        callbackArguments: 'list[Any]' = [],
-        timeout:int = -1
+        callbackArguments: 'list[Any]' = []
     ):
-        
         commandMessage = CommandMessage(
             commandName=commandName,
             commandType=commandType,
@@ -255,12 +238,17 @@ class ExecutionClient(object):
         )
         
         if callbackFunction is not None:
-            self.addDataListener(commandMessage.getChannelName(),callbackFunction,callbackArguments)
+            if not self.addDataListener(commandMessage.getChannelName(),callbackFunction,callbackArguments):
+                return None
 
         self.commandSocket.send(commandMessage.encode())
-        rawReply = self.commandSocket.recv()
-        reply = CommandReply.fromBytes(rawReply)
-        return reply
+        if self.commandSocket.poll(ExecutionClient.TIMEOUT, zmq.POLLIN):
+            rawReply = self.commandSocket.recv()
+            reply = CommandReply.fromBytes(rawReply)
+            return reply
+        else:
+            self._openCommandSocket()
+            return None
         
 
         

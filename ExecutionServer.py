@@ -23,6 +23,8 @@ class ExecutionServer(object):
         commandPort: int,
         dataInputPort: int, 
         dataOutputPort: int, 
+        internalDataInputAddress: str,
+        internalDataOutputAddress: str,
         publicKey=None, 
         privateKey=None
     ):
@@ -30,11 +32,12 @@ class ExecutionServer(object):
         self._commandPort = commandPort
         self._dataInputPort = dataInputPort
         self._dataOutputPort = dataOutputPort
+        
         self._publicKey = publicKey
         self._privateKey = privateKey
 
-        self._dataInputAddress="ipc://dataServer/input"+str(os.getpid()*1000+ExecutionServer.DATA_SUFFIX)
-        self._dataOutputAddress="ipc://dataServer/output"+str(os.getpid()*1000+ExecutionServer.DATA_SUFFIX)
+        self._dataInputAddress=internalDataInputAddress
+        self._dataOutputAddress=internalDataOutputAddress
 
         ExecutionServer.DATA_SUFFIX += 1
         
@@ -44,6 +47,11 @@ class ExecutionServer(object):
         self._isRunning = False
 
         self._dataSocket = None
+
+        #TODO
+        #track status of connection; prevent sending commands in case of connection failure
+        #but keep threads alive for possible reconnection
+        #indicate critial errors, ie. due to config, and exit
         
     def serve(self, daemon: bool = False):
         logging.info("Starting data/command threads as daemons: "+str(daemon))
@@ -80,7 +88,16 @@ class ExecutionServer(object):
 
             self.commandThread = threading.Thread(
                 target=ExecutionServer._commandLoop, 
-                args=(self._context, self._commandPort, self._registeredCallCommands, self._registeredSpawnCommands, self._publicKey, self._privateKey),
+                args=(
+                    self._context, 
+                    self._commandPort, 
+                    self._dataInputAddress,
+                    self._dataOutputAddress,
+                    self._registeredCallCommands, 
+                    self._registeredSpawnCommands, 
+                    self._publicKey, 
+                    self._privateKey
+                ),
                 daemon=daemon
             )
             self.commandThread.start()
@@ -157,6 +174,8 @@ class ExecutionServer(object):
     def _commandLoop(
         context: zmq.Context, 
         commandPort: int, 
+        internalInputAddress: str,
+        internalOutputAddress: str,
         callCommands: 'dict[str,CallCommand]',
         spawnCommands: 'dict[str,SpawnCommand]',
         publicKey: Optional[bytes], 
@@ -188,7 +207,13 @@ class ExecutionServer(object):
                 if message.commandType()=='call' and message.commandName() in callCommands.keys():
                     command = callCommands[message.commandName()]
                     logging.debug(f"Issue call command '{message.commandType()}/{message.commandName()}'")
-                    result = command(message.getChannelName(),message.config(),message.arguments())
+                    result = command(
+                        internalInputAddress, 
+                        internalOutputAddress,
+                        message.getChannelName(),
+                        message.config(),
+                        message.arguments()
+                    )
 
                     replyMessage = message.createReply(
                         success=True,
@@ -199,7 +224,13 @@ class ExecutionServer(object):
                 elif message.commandType()=='spawn' and message.commandName() in spawnCommands.keys():
                     command = spawnCommands[message.commandName()]
                     logging.debug(f"Issue spawn command '{message.commandType()}/{message.commandName()}'")
-                    spawn,result = command(message.getChannelName(),message.config(),message.arguments())
+                    spawn,result = command(
+                        internalInputAddress, 
+                        internalOutputAddress,
+                        message.getChannelName(),
+                        message.config(),
+                        message.arguments()
+                    )
                     replyMessage = message.createReply(
                         success=True,
                         payload=result
@@ -220,7 +251,8 @@ class ExecutionServer(object):
             commandSocket.send(replyMessage.encode())
             
 
-    def addDataListener(self, 
+    def addDataListener(
+        self, 
         channelName: str, 
         callbackFunction: 'Callable[[DataMessage],bool]',
         callbackArguments: 'list[Any]' = []
@@ -238,7 +270,7 @@ class ExecutionServer(object):
                 heartbeatSocket.connect(dataAddress)
                 heartbeatSocket.setsockopt(zmq.SUBSCRIBE,DataMessage.encodedChannel('heartbeat'))
                 heartbeatSocket.recv() #blocks until heartbeat is received
-                time.sleep(0.1) #need to wait a bit to ensure connection is established :-(
+                #time.sleep(0.1) #need to wait a bit to ensure connection is established :-(
                 heartbeatOK.set()
                 heartbeatSocket.close()
 
@@ -278,11 +310,15 @@ class ExecutionServer(object):
             raise RuntimeError("Cannot send data when server has not yet started")
         self._dataSocket.send(message.encode())
 
-
     def registerCallCommand(self, command: CallCommand):
+        if self._isRunning:
+            raise RuntimeError("Commands can only be added before serving")
         self._registeredCallCommands[command.name()] = command
 
     def registerSpawnCommand(self, command: SpawnCommand):
+        if self._isRunning:
+            raise RuntimeError("Commands can only be added before serving")
         self._registeredSpawnCommands[command.name()] = command
+
         
     
