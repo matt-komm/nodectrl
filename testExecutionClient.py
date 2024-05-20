@@ -35,18 +35,25 @@ server.addDataListener('heartbeat',printHearbeat)
 
 def handleOutput(message: DataMessage):
     print("handling data message ",message)
-    #time.sleep(1)
-    return True #kills thread
+    payload = message.payload()
+    if 'stdout' in payload.keys():
+        print (payload['stdout'])
+    if 'stderr' in payload.keys():
+        print (payload['stderr'])
+    if 'terminated' in payload.keys():
+        print ("Process terminated with status",payload['terminated'])
+        return False
+    return True 
 
 reply = client.sendCommand(
-    commandName='testCallCmd',
-    commandType='call',
-    config={"testenv":"/home"},
-    arguments=["blub;"],
+    commandName='listdir',
+    commandType='spawn',
+    config={},
+    arguments=[],
     callbackFunction=handleOutput
 )
 print (reply)
-
+'''
 while True:
     input("press to send command")
 
@@ -60,3 +67,4 @@ while True:
     print (reply)
 
 time.sleep(1)
+'''

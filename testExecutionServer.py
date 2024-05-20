@@ -4,6 +4,8 @@ from ExecutionClient import *
 from ExecutionServer import *
 
 from DataMessage import *
+from ShellCommand import *
+
 import logging
 logging.basicConfig(level=logging.DEBUG, format="%(levelname)-8s: %(message)s [%(filename)s:%(lineno)d]")
 
@@ -28,11 +30,8 @@ server = ExecutionServer(
 def callCmd(inputAddress, outputAddress, channel, config, arguments):
     print ("calling",channel,config,arguments)
     contextCallCmd = zmq.Context()
-    print("sending to channel ",channel)
     dataSocket2 = contextCallCmd.socket(zmq.PUB)
     dataSocket2.connect(outputAddress)
-    print ("delay for heartbeat")
-    time.sleep(2)
 
     heartbeatSocket = contextCallCmd.socket(zmq.SUB)
     heartbeatSocket.connect(inputAddress)
@@ -49,5 +48,6 @@ def callCmd(inputAddress, outputAddress, channel, config, arguments):
     return {"awesome":1}
 
 server.registerCallCommand(CallCommand('testCallCmd',callCmd))
+server.registerSpawnCommand(ShellCommand('listdir',['ls']))
 server.serve()
 #time.sleep(1)
